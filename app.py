@@ -1,5 +1,8 @@
 import os
 import re
+import csv
+import io
+import zipfile
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -90,6 +93,17 @@ STATUSES = [
     "Other",
 ]
 
+DEFAULT_CATEGORIES = [
+    "Inventory - New",
+    "Inventory - Used",
+    "Service",
+    "Consignment",
+    "Demo",
+    "Warranty",
+    "Other",
+    "Uncategorized",
+]
+
 DOC_CATEGORIES = [
     "Warranty",
     "Invoice",
@@ -101,6 +115,8 @@ DOC_CATEGORIES = [
 
 ALLOWED_EXTS = {".pdf", ".doc", ".docx", ".jpg", ".jpeg", ".png", ".webp"}
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
+
+PRIORITIES = ["Low", "Normal", "High", "Urgent"]
 
 BADGE_LABEL = {
     "For Sale": "FOR SALE",
@@ -255,16 +271,26 @@ div[data-baseweb="select"] > div {
 )
 
 # =========================
-# DB helpers
+# DB helpers + migrations
 # =========================
 def db():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON;")
+    # Helps multiple users a bit
+    try:
+        conn.execute("PRAGMA journal_mode=WAL;")
+    except Exception:
+        pass
     return conn
 
 def now_iso():
     return datetime.now().isoformat(timespec="seconds")
+
+def ensure_column(conn, table: str, col: str, col_def: str):
+    cols = [r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
+    if col not in cols:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {col_def}")
 
 def init_db():
     with db() as conn:
@@ -311,6 +337,20 @@ def init_db():
         )
         """)
 
+        # ---- Migrations (adds new “best features” columns without deleting your data)
+        ensure_column(conn, "boats", "category", "TEXT")
+        ensure_column(conn, "boats", "tags", "TEXT")
+        ensure_column(conn, "boats", "sale_price", "REAL")
+        ensure_column(conn, "boats", "msrp", "REAL")
+        ensure_column(conn, "boats", "hours", "REAL")
+        ensure_column(conn, "boats", "work_order", "TEXT")
+        ensure_column(conn, "boats", "assigned_tech", "TEXT")
+        ensure_column(conn, "boats", "priority", "TEXT")
+
+        # Fill blanks so filtering works
+        conn.execute("UPDATE boats SET category='Uncategorized' WHERE category IS NULL OR TRIM(category)=''")
+        conn.execute("UPDATE boats SET priority='Normal' WHERE priority IS NULL OR TRIM(priority)=''")
+
 def slugify(s: str) -> str:
     s = s.strip().lower()
     s = re.sub(r"[^a-z0-9]+", "-", s)
@@ -321,19 +361,42 @@ def badge_html(status: str) -> str:
     label = BADGE_LABEL.get(status, status.upper())
     return f'<span class="bh-badge" style="background:{bg};color:{fg};border:1px solid {border};">{label}</span>'
 
+def distinct_values(col: str):
+    with db() as conn:
+        rows = conn.execute(f"SELECT DISTINCT {col} as v FROM boats WHERE {col} IS NOT NULL AND TRIM({col})<>'' ORDER BY {col}").fetchall()
+        return [r["v"] for r in rows if r["v"] is not None]
+
 # =========================
-# Boat CRUD
+# CRUD
 # =========================
+def boat_exists(hin: str | None, stock: str | None) -> bool:
+    hin = (hin or "").strip()
+    stock = (stock or "").strip()
+    if not hin and not stock:
+        return False
+    with db() as conn:
+        if hin:
+            r = conn.execute("SELECT 1 FROM boats WHERE hin=? LIMIT 1", (hin,)).fetchone()
+            if r:
+                return True
+        if stock:
+            r = conn.execute("SELECT 1 FROM boats WHERE stock_number=? LIMIT 1", (stock,)).fetchone()
+            if r:
+                return True
+    return False
+
 def insert_boat(data: dict) -> int:
     t = now_iso()
     with db() as conn:
         cur = conn.execute("""
             INSERT INTO boats (
                 stock_number, year, make, model, hin, length_ft, engine, location,
-                status, customer_name, customer_phone, notes, created_at, updated_at
+                status, category, tags, sale_price, msrp, hours, work_order, assigned_tech, priority,
+                customer_name, customer_phone, notes, created_at, updated_at
             ) VALUES (
                 :stock_number, :year, :make, :model, :hin, :length_ft, :engine, :location,
-                :status, :customer_name, :customer_phone, :notes, :created_at, :updated_at
+                :status, :category, :tags, :sale_price, :msrp, :hours, :work_order, :assigned_tech, :priority,
+                :customer_name, :customer_phone, :notes, :created_at, :updated_at
             )
         """, {**data, "created_at": t, "updated_at": t})
         return int(cur.lastrowid)
@@ -352,6 +415,14 @@ def update_boat(boat_id: int, data: dict):
                 engine=:engine,
                 location=:location,
                 status=:status,
+                category=:category,
+                tags=:tags,
+                sale_price=:sale_price,
+                msrp=:msrp,
+                hours=:hours,
+                work_order=:work_order,
+                assigned_tech=:assigned_tech,
+                priority=:priority,
                 customer_name=:customer_name,
                 customer_phone=:customer_phone,
                 notes=:notes,
@@ -363,39 +434,81 @@ def get_boat(boat_id: int):
     with db() as conn:
         return conn.execute("SELECT * FROM boats WHERE id=?", (boat_id,)).fetchone()
 
-def list_boats(query: str = "", status: str = "All"):
+def list_boats_filtered(
+    query: str,
+    statuses: list[str],
+    categories: list[str],
+    makes: list[str],
+    year_min: int | None,
+    year_max: int | None,
+    only_with_photos: bool,
+    only_with_docs: bool,
+    sort_mode: str,
+):
     q = f"%{query.strip()}%"
+    conditions = []
+    params: list = []
+
+    if query.strip():
+        conditions.append("""
+        (
+          make LIKE ? OR model LIKE ? OR hin LIKE ? OR stock_number LIKE ? OR customer_name LIKE ?
+          OR category LIKE ? OR tags LIKE ?
+        )
+        """)
+        params.extend([q, q, q, q, q, q, q])
+
+    if statuses:
+        placeholders = ",".join(["?"] * len(statuses))
+        conditions.append(f"status IN ({placeholders})")
+        params.extend(statuses)
+
+    if categories:
+        placeholders = ",".join(["?"] * len(categories))
+        conditions.append(f"category IN ({placeholders})")
+        params.extend(categories)
+
+    if makes:
+        placeholders = ",".join(["?"] * len(makes))
+        conditions.append(f"make IN ({placeholders})")
+        params.extend(makes)
+
+    if year_min is not None and year_max is not None:
+        conditions.append("(year IS NOT NULL AND year BETWEEN ? AND ?)")
+        params.extend([year_min, year_max])
+
+    if only_with_photos:
+        conditions.append("EXISTS (SELECT 1 FROM boat_photos bp WHERE bp.boat_id = boats.id)")
+
+    if only_with_docs:
+        conditions.append("EXISTS (SELECT 1 FROM boat_files bf WHERE bf.boat_id = boats.id)")
+
+    where_sql = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+
+    order_map = {
+        "Recently Updated": "updated_at DESC",
+        "Year (Newest)": "year DESC, updated_at DESC",
+        "Year (Oldest)": "year ASC, updated_at DESC",
+        "Make (A-Z)": "make ASC, model ASC, year DESC",
+        "Status": "status ASC, updated_at DESC",
+        "Category": "category ASC, updated_at DESC",
+    }
+    order_sql = order_map.get(sort_mode, "updated_at DESC")
+
     with db() as conn:
-        if status == "All":
-            return conn.execute("""
-                SELECT * FROM boats
-                WHERE (make LIKE ? OR model LIKE ? OR hin LIKE ? OR stock_number LIKE ? OR customer_name LIKE ?)
-                ORDER BY updated_at DESC
-            """, (q, q, q, q, q)).fetchall()
-        return conn.execute("""
-            SELECT * FROM boats
-            WHERE status = ?
-              AND (make LIKE ? OR model LIKE ? OR hin LIKE ? OR stock_number LIKE ? OR customer_name LIKE ?)
-            ORDER BY updated_at DESC
-        """, (status, q, q, q, q, q)).fetchall()
+        return conn.execute(f"SELECT * FROM boats {where_sql} ORDER BY {order_sql}", tuple(params)).fetchall()
 
 # =========================
 # Photos
 # =========================
 def add_photo(boat_id: int, filename: str):
     with db() as conn:
-        conn.execute("""
-            INSERT INTO boat_photos (boat_id, filename, uploaded_at)
-            VALUES (?, ?, ?)
-        """, (boat_id, filename, now_iso()))
+        conn.execute("INSERT INTO boat_photos (boat_id, filename, uploaded_at) VALUES (?, ?, ?)",
+                     (boat_id, filename, now_iso()))
 
 def get_photos(boat_id: int):
     with db() as conn:
-        return conn.execute("""
-            SELECT * FROM boat_photos
-            WHERE boat_id=?
-            ORDER BY uploaded_at DESC
-        """, (boat_id,)).fetchall()
+        return conn.execute("SELECT * FROM boat_photos WHERE boat_id=? ORDER BY uploaded_at DESC", (boat_id,)).fetchall()
 
 def delete_photo(photo_id: int):
     with db() as conn:
@@ -448,11 +561,7 @@ def add_file(boat_id: int, filename: str, original_name: str, category: str, ext
 
 def get_files(boat_id: int):
     with db() as conn:
-        return conn.execute("""
-            SELECT * FROM boat_files
-            WHERE boat_id=?
-            ORDER BY uploaded_at DESC
-        """, (boat_id,)).fetchall()
+        return conn.execute("SELECT * FROM boat_files WHERE boat_id=? ORDER BY uploaded_at DESC", (boat_id,)).fetchall()
 
 def delete_file(file_id: int):
     with db() as conn:
@@ -526,6 +635,68 @@ def delete_boat(boat_id: int):
             pass
 
 # =========================
+# Exports / Backups
+# =========================
+def boats_to_csv_bytes(rows) -> bytes:
+    out = io.StringIO()
+    w = csv.writer(out)
+    w.writerow([
+        "id","year","make","model","status","category","stock_number","hin","location",
+        "sale_price","msrp","hours","work_order","assigned_tech","priority","customer_name","customer_phone","tags","updated_at"
+    ])
+    for b in rows:
+        w.writerow([
+            b["id"], b["year"], b["make"], b["model"], b["status"], b["category"], b["stock_number"], b["hin"], b["location"],
+            b["sale_price"], b["msrp"], b["hours"], b["work_order"], b["assigned_tech"], b["priority"],
+            b["customer_name"], b["customer_phone"], b["tags"], b["updated_at"]
+        ])
+    return out.getvalue().encode("utf-8")
+
+def zip_one_boat(boat_id: int) -> bytes:
+    """
+    Creates a ZIP containing:
+    - Photos for that boat
+    - Documents for that boat
+    """
+    boat = get_boat(boat_id)
+    if not boat:
+        return b""
+
+    photos = get_photos(boat_id)
+    docs = get_files(boat_id)
+
+    mem = io.BytesIO()
+    with zipfile.ZipFile(mem, "w", compression=zipfile.ZIP_DEFLATED) as z:
+        # Photos (stored as filenames)
+        for p in photos:
+            p_path = os.path.join(PHOTOS_DIR, p["filename"])
+            if os.path.exists(p_path):
+                z.write(p_path, arcname=f"photos/{p['filename']}")
+
+        # Docs (stored in files/<boat_id>/)
+        boat_folder = os.path.join(FILES_DIR, str(boat_id))
+        for d in docs:
+            f_path = os.path.join(boat_folder, d["filename"])
+            if os.path.exists(f_path):
+                z.write(f_path, arcname=f"documents/{d['category']}/{d['original_name']}")
+
+        # Simple text summary
+        summary = (
+            f"Boat #{boat['id']}\n"
+            f"Year/Make/Model: {boat['year']} {boat['make']} {boat['model']}\n"
+            f"Status: {boat['status']}\n"
+            f"Category: {boat['category']}\n"
+            f"Stock: {boat['stock_number']}\n"
+            f"HIN: {boat['hin']}\n"
+            f"Location: {boat['location']}\n"
+            f"Updated: {boat['updated_at']}\n"
+        )
+        z.writestr("boat_summary.txt", summary)
+
+    mem.seek(0)
+    return mem.read()
+
+# =========================
 # Init DB
 # =========================
 init_db()
@@ -543,7 +714,7 @@ with h2:
         <div class="bh-card">
           <div class="bh-kicker">Paradigm • Dealer Ops</div>
           <div class="bh-title">BoatHub</div>
-          <div class="bh-sub">Inventory + service tracking with photos and documents (warranty, invoices, service orders).</div>
+          <div class="bh-sub">Browse by Category • Upload Photos + Documents • Export + Backup</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -552,24 +723,61 @@ with h2:
 st.write("")
 
 # =========================
-# Sidebar (Search/Filter only)
+# Sidebar Filters (Browse)
 # =========================
 with st.sidebar:
-    st.markdown("### Search / Filter")
-    search = st.text_input("Search", value="", placeholder="make, model, HIN, stock, customer…")
-    status_filter = st.selectbox("Status filter", ["All"] + STATUSES, index=0)
+    st.markdown("### Browse Filters")
+
+    search = st.text_input("Search", value="", placeholder="make, model, category, tags, HIN, stock, customer…")
+
+    # Dynamic lists
+    category_choices = sorted(set(DEFAULT_CATEGORIES + distinct_values("category")))
+    make_choices = distinct_values("make")
+
+    sel_categories = st.multiselect("Category", category_choices, default=category_choices)
+    sel_statuses = st.multiselect("Status", STATUSES, default=STATUSES)
+
+    sel_makes = st.multiselect("Make", make_choices, default=make_choices)
+
+    only_photos = st.checkbox("Only boats WITH photos", value=False)
+    only_docs = st.checkbox("Only boats WITH documents", value=False)
+
+    # Year slider based on data
+    years = [y for y in distinct_values("year") if isinstance(y, int)]
+    if years:
+        y_min, y_max = min(years), max(years)
+        year_range = st.slider("Year range", min_value=int(y_min), max_value=int(y_max), value=(int(y_min), int(y_max)))
+    else:
+        year_range = None
+
+    sort_mode = st.selectbox(
+        "Sort",
+        ["Recently Updated", "Year (Newest)", "Year (Oldest)", "Make (A-Z)", "Status", "Category"],
+        index=0,
+    )
+
     st.markdown("---")
-    st.caption("Use the tabs on the main page to Browse or Add.")
+    st.caption("Tip: Use the tabs on the main page to Browse / Add / Tools.")
 
 # =========================
 # Stats
 # =========================
-all_boats = list_boats("", "All")
-total = len(all_boats)
-for_sale = sum(1 for b in all_boats if b["status"] == "For Sale")
-service = sum(1 for b in all_boats if b["status"] == "Customer Service")
-today_prefix = datetime.now().date().isoformat()
-updated_today = sum(1 for b in all_boats if (b["updated_at"] or "").startswith(today_prefix))
+all_rows = list_boats_filtered(
+    query="",
+    statuses=STATUSES,
+    categories=sorted(set(DEFAULT_CATEGORIES + distinct_values("category"))),
+    makes=distinct_values("make"),
+    year_min=None,
+    year_max=None,
+    only_with_photos=False,
+    only_with_docs=False,
+    sort_mode="Recently Updated",
+)
+
+total = len(all_rows)
+for_sale = sum(1 for b in all_rows if b["status"] == "For Sale")
+service = sum(1 for b in all_rows if b["status"] == "Customer Service")
+sold = sum(1 for b in all_rows if b["status"] == "Sold")
 
 st.markdown(
     f"""
@@ -577,7 +785,7 @@ st.markdown(
       <div class="bh-stat"><div class="bh-stat-k">Total</div><div class="bh-stat-v">{total}</div></div>
       <div class="bh-stat"><div class="bh-stat-k">For Sale</div><div class="bh-stat-v">{for_sale}</div></div>
       <div class="bh-stat"><div class="bh-stat-k">Service</div><div class="bh-stat-v">{service}</div></div>
-      <div class="bh-stat"><div class="bh-stat-k">Updated Today</div><div class="bh-stat-v">{updated_today}</div></div>
+      <div class="bh-stat"><div class="bh-stat-k">Sold</div><div class="bh-stat-v">{sold}</div></div>
     </div>
     """,
     unsafe_allow_html=True,
@@ -585,16 +793,41 @@ st.markdown(
 st.write("")
 
 # =========================
-# MAIN MODE TABS (fixes your issue)
+# Main Tabs
 # =========================
-tab_browse, tab_add = st.tabs(["Browse Boats", "Add New Boat"])
+tab_browse, tab_add, tab_tools = st.tabs(["Browse Boats", "Add New Boat", "Tools / Export / Backup"])
 
 # =========================
-# ADD NEW BOAT TAB
+# Compute filtered browse rows
+# =========================
+year_min = year_range[0] if year_range else None
+year_max = year_range[1] if year_range else None
+
+filtered = list_boats_filtered(
+    query=search,
+    statuses=sel_statuses,
+    categories=sel_categories,
+    makes=sel_makes,
+    year_min=year_min,
+    year_max=year_max,
+    only_with_photos=only_photos,
+    only_with_docs=only_docs,
+    sort_mode=sort_mode,
+)
+
+# =========================
+# ADD TAB
 # =========================
 with tab_add:
     st.markdown('<div class="bh-card-tight">', unsafe_allow_html=True)
     st.markdown("## Add a boat")
+
+    # Category selector with “custom”
+    existing_categories = sorted(set(DEFAULT_CATEGORIES + distinct_values("category")))
+    category_pick = st.selectbox("Category", existing_categories + ["Custom (type below)"], index=0)
+    category_custom = ""
+    if category_pick == "Custom (type below)":
+        category_custom = st.text_input("Custom category name")
 
     with st.form("add_boat_form"):
         status_in = st.selectbox("Status", STATUSES, index=0)
@@ -611,9 +844,25 @@ with tab_add:
         hin = c5.text_input("HIN / Serial (optional)")
         location = c6.text_input("Location (optional)", value="Showroom")
 
-        c7, c8 = st.columns(2)
-        length_ft = c7.number_input("Length (ft, optional)", min_value=0.0, max_value=200.0, value=0.0, step=0.5)
-        engine = c8.text_input("Engine (optional)")
+        tags = st.text_input("Tags (optional)", help="Example: blue, tri-toon, yamaha, warranty")
+
+        st.markdown("### Optional Sales / Service fields")
+        with st.expander("Open extra fields", expanded=False):
+            e1, e2 = st.columns(2)
+            sale_price = e1.number_input("Sale Price (optional)", min_value=0.0, value=0.0, step=500.0)
+            msrp = e2.number_input("MSRP (optional)", min_value=0.0, value=0.0, step=500.0)
+
+            e3, e4 = st.columns(2)
+            hours = e3.number_input("Hours (optional)", min_value=0.0, value=0.0, step=1.0)
+            priority = e4.selectbox("Priority", PRIORITIES, index=1)
+
+            e5, e6 = st.columns(2)
+            work_order = e5.text_input("Work Order # (optional)")
+            assigned_tech = e6.text_input("Assigned Tech (optional)")
+
+            e7, e8 = st.columns(2)
+            length_ft = e7.number_input("Length (ft, optional)", min_value=0.0, max_value=200.0, value=0.0, step=0.5)
+            engine = e8.text_input("Engine (optional)")
 
         st.markdown("### Customer (only if service)")
         c9, c10 = st.columns(2)
@@ -631,19 +880,35 @@ with tab_add:
         submitted = st.form_submit_button("Create Boat", use_container_width=True)
 
     if submitted:
+        final_category = (category_custom.strip() if category_pick == "Custom (type below)" else category_pick).strip()
+        if not final_category:
+            final_category = "Uncategorized"
+
         if not make.strip() or not model.strip():
             st.error("Make and Model are required.")
         else:
+            # Duplicate warning (does NOT block, just warns)
+            if boat_exists(hin, stock_number):
+                st.warning("Heads up: A boat already exists with that HIN or Stock #. Double-check before continuing.")
+
             boat_id = insert_boat({
                 "stock_number": stock_number.strip() or None,
                 "year": int(year) if year else None,
                 "make": make.strip(),
                 "model": model.strip(),
                 "hin": hin.strip() or None,
-                "length_ft": float(length_ft) if length_ft else None,
-                "engine": engine.strip() or None,
+                "length_ft": float(locals().get("length_ft", 0.0)) or None,
+                "engine": (locals().get("engine", "") or "").strip() or None,
                 "location": location.strip() or None,
                 "status": status_in,
+                "category": final_category,
+                "tags": tags.strip() or None,
+                "sale_price": float(locals().get("sale_price", 0.0)) or None,
+                "msrp": float(locals().get("msrp", 0.0)) or None,
+                "hours": float(locals().get("hours", 0.0)) or None,
+                "work_order": (locals().get("work_order", "") or "").strip() or None,
+                "assigned_tech": (locals().get("assigned_tech", "") or "").strip() or None,
+                "priority": (locals().get("priority", "Normal") or "Normal"),
                 "customer_name": customer_name.strip() or None,
                 "customer_phone": customer_phone.strip() or None,
                 "notes": notes.strip() or None,
@@ -663,28 +928,22 @@ with tab_add:
 # BROWSE TAB
 # =========================
 with tab_browse:
-    boats = list_boats(search, status_filter)
-
     left, right = st.columns([1.05, 2.15], gap="large")
 
     with left:
         st.markdown('<div class="bh-card-tight">', unsafe_allow_html=True)
         st.markdown("## Browse")
-        st.caption(f"{len(boats)} result(s).")
+        st.caption(f"{len(filtered)} result(s) with your filters.")
 
-        if not boats:
-            st.warning("No boats match your search/filter.")
+        if not filtered:
+            st.warning("No boats match your filters.")
             st.markdown("</div>", unsafe_allow_html=True)
             st.stop()
 
         labels = []
         id_by_label = {}
-        for b in boats:
-            label = f"#{b['id']} • {b['year'] or ''} {b['make']} {b['model']} • {b['status']}"
-            if b["stock_number"]:
-                label += f" • Stock {b['stock_number']}"
-            if b["customer_name"]:
-                label += f" • {b['customer_name']}"
+        for b in filtered:
+            label = f"#{b['id']} • {b['year'] or ''} {b['make']} {b['model']} • {b['status']} • {b['category']}"
             labels.append(label)
             id_by_label[label] = b["id"]
 
@@ -707,7 +966,7 @@ with tab_browse:
                 <div style="font-size:22px;font-weight:950;letter-spacing:-0.02em;color:#0B1220;">
                   Boat #{boat['id']} — {boat['year'] or ''} {boat['make']} {boat['model']}
                 </div>
-                <div class="bh-sub">Last updated: {boat['updated_at']}</div>
+                <div class="bh-sub">Category: <b>{boat['category']}</b> • Last updated: {boat['updated_at']}</div>
               </div>
               <div>{badge_html(boat['status'])}</div>
             </div>
@@ -723,15 +982,22 @@ with tab_browse:
                 st.write(f"**Stock #:** {boat['stock_number'] or '—'}")
                 st.write(f"**HIN:** {boat['hin'] or '—'}")
                 st.write(f"**Location:** {boat['location'] or '—'}")
+                st.write(f"**Tags:** {boat['tags'] or '—'}")
             with c2:
-                st.write(f"**Length:** {boat['length_ft'] or '—'} ft")
-                st.write(f"**Engine:** {boat['engine'] or '—'}")
-                st.write(f"**Status:** {boat['status']}")
+                st.write(f"**Sale Price:** {boat['sale_price'] or '—'}")
+                st.write(f"**MSRP:** {boat['msrp'] or '—'}")
+                st.write(f"**Hours:** {boat['hours'] or '—'}")
+                st.write(f"**Priority:** {boat['priority'] or 'Normal'}")
+
+            st.markdown("### Service")
+            c3, c4 = st.columns(2)
+            c3.write(f"**Work Order #:** {boat['work_order'] or '—'}")
+            c4.write(f"**Assigned Tech:** {boat['assigned_tech'] or '—'}")
 
             st.markdown("### Customer")
-            c3, c4 = st.columns(2)
-            c3.write(f"**Name:** {boat['customer_name'] or '—'}")
-            c4.write(f"**Phone:** {boat['customer_phone'] or '—'}")
+            c5, c6 = st.columns(2)
+            c5.write(f"**Name:** {boat['customer_name'] or '—'}")
+            c6.write(f"**Phone:** {boat['customer_phone'] or '—'}")
 
             st.markdown("### Notes")
             st.write(boat["notes"] or "—")
@@ -767,7 +1033,8 @@ with tab_browse:
                 st.rerun()
 
         with tab_docs:
-            st.markdown("### Documents")
+            st.markdown("### Documents (Warranty / Invoice / Service Order / etc.)")
+
             ccat1, ccat2 = st.columns([2, 3])
             with ccat1:
                 view_cat = st.selectbox("View category", ["All"] + DOC_CATEGORIES, index=0)
@@ -829,6 +1096,14 @@ with tab_browse:
 
         with tab_edit:
             st.markdown("### Edit boat details")
+
+            # Category editor with custom option
+            cat_list = sorted(set(DEFAULT_CATEGORIES + distinct_values("category")))
+            cat_pick = st.selectbox("Category", cat_list + ["Custom (type below)"], index=max(0, cat_list.index(boat["category"]) if boat["category"] in cat_list else 0))
+            cat_custom = ""
+            if cat_pick == "Custom (type below)":
+                cat_custom = st.text_input("Custom category name", value=boat["category"] if boat["category"] not in cat_list else "")
+
             with st.form("edit_form"):
                 status_in = st.selectbox("Status", STATUSES, index=STATUSES.index(boat["status"]))
 
@@ -845,15 +1120,26 @@ with tab_browse:
                 hin = e5.text_input("HIN / Serial", value=boat["hin"] or "")
                 location = e6.text_input("Location", value=boat["location"] or "")
 
-                e7, e8 = st.columns(2)
-                length_ft = e7.number_input("Length (ft)", min_value=0.0, max_value=200.0,
-                                            value=float(boat["length_ft"] or 0.0), step=0.5)
-                engine = e8.text_input("Engine", value=boat["engine"] or "")
+                tags = st.text_input("Tags", value=boat["tags"] or "")
+
+                st.markdown("### Optional Sales / Service fields")
+                with st.expander("Open extra fields", expanded=False):
+                    x1, x2 = st.columns(2)
+                    sale_price = x1.number_input("Sale Price", min_value=0.0, value=float(boat["sale_price"] or 0.0), step=500.0)
+                    msrp = x2.number_input("MSRP", min_value=0.0, value=float(boat["msrp"] or 0.0), step=500.0)
+
+                    x3, x4 = st.columns(2)
+                    hours = x3.number_input("Hours", min_value=0.0, value=float(boat["hours"] or 0.0), step=1.0)
+                    priority = x4.selectbox("Priority", PRIORITIES, index=PRIORITIES.index(boat["priority"] or "Normal"))
+
+                    x5, x6 = st.columns(2)
+                    work_order = x5.text_input("Work Order #", value=boat["work_order"] or "")
+                    assigned_tech = x6.text_input("Assigned Tech", value=boat["assigned_tech"] or "")
 
                 st.markdown("### Customer")
-                e9, e10 = st.columns(2)
-                customer_name = e9.text_input("Customer name", value=boat["customer_name"] or "")
-                customer_phone = e10.text_input("Customer phone", value=boat["customer_phone"] or "")
+                c9, c10 = st.columns(2)
+                customer_name = c9.text_input("Customer name", value=boat["customer_name"] or "")
+                customer_phone = c10.text_input("Customer phone", value=boat["customer_phone"] or "")
 
                 notes = st.text_area("Notes", value=boat["notes"] or "", height=120)
 
@@ -863,16 +1149,28 @@ with tab_browse:
                 if not make.strip() or not model.strip():
                     st.error("Make and Model are required.")
                 else:
+                    final_cat = (cat_custom.strip() if cat_pick == "Custom (type below)" else cat_pick).strip()
+                    if not final_cat:
+                        final_cat = "Uncategorized"
+
                     update_boat(selected_id, {
                         "stock_number": stock_number.strip() or None,
                         "year": int(year) if year else None,
                         "make": make.strip(),
                         "model": model.strip(),
                         "hin": hin.strip() or None,
-                        "length_ft": float(length_ft) if length_ft else None,
-                        "engine": engine.strip() or None,
+                        "length_ft": boat["length_ft"],
+                        "engine": boat["engine"],
                         "location": location.strip() or None,
                         "status": status_in,
+                        "category": final_cat,
+                        "tags": tags.strip() or None,
+                        "sale_price": float(sale_price) if sale_price else None,
+                        "msrp": float(msrp) if msrp else None,
+                        "hours": float(hours) if hours else None,
+                        "work_order": work_order.strip() or None,
+                        "assigned_tech": assigned_tech.strip() or None,
+                        "priority": priority or "Normal",
                         "customer_name": customer_name.strip() or None,
                         "customer_phone": customer_phone.strip() or None,
                         "notes": notes.strip() or None,
@@ -882,9 +1180,63 @@ with tab_browse:
 
             st.markdown("---")
             st.markdown("### Danger zone")
+            confirm = st.text_input("Type DELETE to confirm boat deletion", value="", key="del_confirm")
             if st.button("Delete this boat (and all photos + documents)", type="primary", use_container_width=True):
-                delete_boat(selected_id)
-                st.warning("Boat deleted.")
-                st.rerun()
+                if confirm.strip().upper() != "DELETE":
+                    st.error("Type DELETE in the box above first.")
+                else:
+                    delete_boat(selected_id)
+                    st.warning("Boat deleted.")
+                    st.rerun()
 
         st.markdown("</div>", unsafe_allow_html=True)
+
+# =========================
+# TOOLS TAB
+# =========================
+with tab_tools:
+    st.markdown('<div class="bh-card-tight">', unsafe_allow_html=True)
+    st.markdown("## Tools / Export / Backup")
+
+    st.markdown("### Export filtered list (CSV)")
+    csv_bytes = boats_to_csv_bytes(filtered)
+    st.download_button(
+        "Download CSV of current filtered boats",
+        data=csv_bytes,
+        file_name=f"boathub_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+        mime="text/csv",
+        use_container_width=True,
+    )
+
+    st.markdown("---")
+    st.markdown("### Backup database (boats.db)")
+    if os.path.exists(DB_PATH):
+        with open(DB_PATH, "rb") as fp:
+            st.download_button(
+                "Download boats.db backup",
+                data=fp.read(),
+                file_name=f"boats_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db",
+                mime="application/octet-stream",
+                use_container_width=True,
+            )
+    else:
+        st.warning("Database file not found.")
+
+    st.markdown("---")
+    st.markdown("### Download ONE boat packet (ZIP)")
+    st.caption("Includes that boat’s photos + documents + a summary text file.")
+    boat_id_for_zip = st.number_input("Boat ID", min_value=1, value=int(filtered[0]["id"]) if filtered else 1, step=1)
+    if st.button("Generate ZIP", use_container_width=True):
+        z = zip_one_boat(int(boat_id_for_zip))
+        if not z:
+            st.error("Boat not found.")
+        else:
+            st.download_button(
+                "Download ZIP now",
+                data=z,
+                file_name=f"boat_{boat_id_for_zip}_packet_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
+                mime="application/zip",
+                use_container_width=True,
+            )
+
+    st.markdown("</div>", unsafe_allow_html=True)
