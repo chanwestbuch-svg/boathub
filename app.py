@@ -7,14 +7,27 @@ import streamlit as st
 from PIL import Image
 
 # =========================
-# 1) APP CONFIG (must be before most Streamlit UI)
+# PARADIGMHUB (Boat inventory + service + photos)
 # =========================
-st.set_page_config(page_title="BoatHub", page_icon="🚤", layout="wide")
 
-# =========================
-# 2) PASSWORD GATE (ONE shared password)
-#   - Set this on Render as env var: BOATHUB_PASSWORD
-# =========================
+# 1) Page setup
+st.set_page_config(page_title="ParadigmHub", page_icon="🚤", layout="wide")
+
+# 2) Logo (put logo.png in the SAME folder as this app.py)
+LOGO_PATH = "logo.png"
+
+def show_logo(center=True, width=650):
+    if not os.path.exists(LOGO_PATH):
+        return
+
+    if center:
+        c1, c2, c3 = st.columns([1, 3, 1])
+        with c2:
+            st.image(LOGO_PATH, width=width)
+    else:
+        st.image(LOGO_PATH, width=width)
+
+# 3) Password gate (Render env var: BOATHUB_PASSWORD)
 def require_password():
     if "authed" not in st.session_state:
         st.session_state.authed = False
@@ -22,17 +35,16 @@ def require_password():
     if st.session_state.authed:
         return
 
-    st.markdown("## 🚤 BoatHub Login")
+    # Login UI
+    show_logo(center=True, width=700)
+    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+    st.markdown("### Login")
     pw = st.text_input("Password", type="password")
 
-    c1, c2 = st.columns([1, 3])
-    with c1:
-        clicked = st.button("Sign in", use_container_width=True)
-
-    if clicked:
+    if st.button("Sign in", use_container_width=True):
         real_pw = os.environ.get("BOATHUB_PASSWORD", "")
         if not real_pw:
-            st.error("BOATHUB_PASSWORD is not set on the server.")
+            st.error("Server password is not set (BOATHUB_PASSWORD).")
         elif pw == real_pw:
             st.session_state.authed = True
             st.rerun()
@@ -43,11 +55,9 @@ def require_password():
 
 require_password()
 
-# =========================
-# 3) STORAGE PATHS
-#   - On Render: set env var RENDER=1 and mount disk at /data
-#   - On Windows local: it uses your folder
-# =========================
+# 4) Storage paths
+# - On Render: set env var RENDER=1 and mount a disk at /data
+# - Local: saves to your app folder
 if os.environ.get("RENDER"):
     DATA_DIR = "/data"
 else:
@@ -76,61 +86,56 @@ STATUS_BADGE = {
     "Other": ("#F472B6", "OTHER"),
 }
 
-# =========================
-# 4) CSS (modern / futuristic)
-# =========================
-def inject_css():
-    st.markdown(
-        """
-        <style>
-          .block-container { padding-top: 1.2rem; padding-bottom: 2rem; max-width: 1400px; }
-          header, footer { visibility: hidden; height: 0px; }
+# 5) Modern CSS
+st.markdown(
+    """
+    <style>
+      .block-container { padding-top: 1.2rem; padding-bottom: 2rem; max-width: 1400px; }
+      header, footer { visibility: hidden; height: 0px; }
 
-          .card {
-            background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03));
-            border: 1px solid rgba(148, 163, 184, 0.18);
-            border-radius: 18px;
-            padding: 16px 16px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.25);
-          }
+      .card {
+        background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03));
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        border-radius: 18px;
+        padding: 16px 16px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+      }
 
-          .titlebar {
-            display:flex; align-items:center; justify-content:space-between;
-            gap: 10px;
-          }
+      .titlebar {
+        display:flex; align-items:center; justify-content:space-between;
+        gap: 10px;
+      }
 
-          .badge {
-            display:inline-flex;
-            align-items:center;
-            padding: 6px 10px;
-            border-radius: 999px;
-            border: 1px solid rgba(255,255,255,0.15);
-            background: rgba(0,0,0,0.15);
-            font-weight: 800;
-            font-size: 12px;
-            letter-spacing: 0.12em;
-          }
+      .badge {
+        display:inline-flex;
+        align-items:center;
+        padding: 6px 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(255,255,255,0.15);
+        background: rgba(0,0,0,0.15);
+        font-weight: 800;
+        font-size: 12px;
+        letter-spacing: 0.12em;
+      }
 
-          .muted { color: rgba(229,231,235,0.75); font-size: 13px; }
+      .muted { color: rgba(229,231,235,0.75); font-size: 13px; }
 
-          .stButton > button {
-            border-radius: 14px !important;
-            border: 1px solid rgba(148,163,184,0.20) !important;
-            padding: 0.55rem 0.85rem !important;
-          }
+      .stButton > button {
+        border-radius: 14px !important;
+        border: 1px solid rgba(148,163,184,0.20) !important;
+        padding: 0.55rem 0.85rem !important;
+      }
 
-          .stTextInput input, .stTextArea textarea, .stNumberInput input, .stSelectbox div[data-baseweb="select"] {
-            border-radius: 14px !important;
-          }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-inject_css()
+      .stTextInput input, .stTextArea textarea, .stNumberInput input, .stSelectbox div[data-baseweb="select"] {
+        border-radius: 14px !important;
+      }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 # =========================
-# 5) DB + FILE HELPERS
+# DB + FILE HELPERS
 # =========================
 def ensure_storage():
     os.makedirs(PHOTOS_DIR, exist_ok=True)
@@ -297,7 +302,6 @@ def save_uploaded_images(boat_id: int, make: str, model: str, files) -> int:
 
         img = Image.open(f).convert("RGB")
 
-        # Keep it snappy: resize big images
         max_side = 2200
         w, h = img.size
         scale = min(1.0, max_side / float(max(w, h)))
@@ -309,28 +313,16 @@ def save_uploaded_images(boat_id: int, make: str, model: str, files) -> int:
         count += 1
     return count
 
-# =========================
-# 6) INIT
-# =========================
+# init database
 init_db()
 
 # =========================
-# 7) UI
+# UI
 # =========================
-st.markdown(
-    f"""
-    <div class="card">
-      <div class="titlebar">
-        <div>
-          <div style="font-size:26px; font-weight:900; letter-spacing:0.01em;">🚤 BoatHub</div>
-          <div class="muted">Inventory + service tracking with photo uploads</div>
-        </div>
-        <div class="muted">DB: <b>{os.path.basename(DB_PATH)}</b> • Photos: <b>{os.path.basename(PHOTOS_DIR)}</b></div>
-      </div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
+st.markdown('<div class="card">', unsafe_allow_html=True)
+show_logo(center=False, width=700)
+st.markdown('<div class="muted">Inventory + service tracking with photo uploads</div>', unsafe_allow_html=True)
+st.markdown("</div>", unsafe_allow_html=True)
 st.write("")
 
 with st.sidebar:
@@ -543,7 +535,7 @@ else:
                     "stock_number": stock_number.strip() or None,
                     "year": int(year) if year else None,
                     "make": make.strip(),
-                    "model": model.strip(),
+                    "model": model.strip() or None,
                     "hin": hin.strip() or None,
                     "length_ft": float(length_ft) if length_ft else None,
                     "engine": engine.strip() or None,
