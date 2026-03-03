@@ -20,10 +20,6 @@ st.set_page_config(
 # Simple Login Gate
 # =========================
 def require_password():
-    """
-    Requires BOATHUB_PASSWORD on Render for login.
-    If BOATHUB_PASSWORD is empty, the app will not block (helpful locally).
-    """
     real_pw = os.environ.get("BOATHUB_PASSWORD", "").strip()
     if not real_pw:
         return
@@ -34,8 +30,19 @@ def require_password():
     if st.session_state.authed:
         return
 
-    st.markdown("## 🔒 BoatHub Login")
-    pw = st.text_input("Password", type="password")
+    st.markdown(
+        """
+        <div style="max-width:520px;margin:40px auto;padding:24px;border-radius:18px;
+                    border:1px solid rgba(148,163,184,0.25);
+                    background:rgba(255,255,255,0.06);
+                    box-shadow:0 20px 50px rgba(0,0,0,0.25);">
+          <div style="font-size:26px;font-weight:900;letter-spacing:-0.02em;">🔒 BoatHub Login</div>
+          <div style="opacity:.75;margin-top:6px;">Enter the shop password to continue.</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    pw = st.text_input("Password", type="password", label_visibility="collapsed")
     if st.button("Sign in", use_container_width=True):
         if pw == real_pw:
             st.session_state.authed = True
@@ -49,7 +56,6 @@ require_password()
 # =========================
 # Storage paths (Local vs Render)
 # =========================
-# On Render, you should have a disk mounted at /data
 if os.environ.get("RENDER") or os.path.exists("/data"):
     DATA_DIR = "/data"
 else:
@@ -58,7 +64,6 @@ else:
 DB_PATH = os.path.join(DATA_DIR, "boats.db")
 PHOTOS_DIR = os.path.join(DATA_DIR, "photos")
 FILES_DIR = os.path.join(DATA_DIR, "files")
-
 os.makedirs(PHOTOS_DIR, exist_ok=True)
 os.makedirs(FILES_DIR, exist_ok=True)
 
@@ -69,94 +74,127 @@ LOGO_PATH = os.path.join(ASSETS_DIR, "paradigm_logo.png")
 # =========================
 # Constants
 # =========================
-STATUSES = [
-    "For Sale",
-    "Customer Service",
-    "On Hold",
-    "Sold",
-    "Delivered",
-    "Storage",
-    "Other",
-]
+STATUSES = ["For Sale", "Customer Service", "On Hold", "Sold", "Delivered", "Storage", "Other"]
 
 STATUS_COLOR = {
-    "For Sale": "#10B981",
+    "For Sale": "#22C55E",
     "Customer Service": "#38BDF8",
     "On Hold": "#F59E0B",
     "Sold": "#A78BFA",
-    "Delivered": "#22C55E",
+    "Delivered": "#10B981",
     "Storage": "#94A3B8",
     "Other": "#F472B6",
 }
 
-DOC_CATEGORIES = [
-    "Warranty",
-    "Invoice",
-    "Service Order",
-    "Registration",
-    "Manual",
-    "Other",
-]
+DOC_CATEGORIES = ["Warranty", "Invoice", "Service Order", "Registration", "Manual", "Other"]
 
-# What you asked for:
-# - PDFs
-# - Word docs (doc/docx)
-# - Images (jpg/png/webp)
-ALLOWED_EXTS = {
-    ".pdf",
-    ".doc",
-    ".docx",
-    ".jpg",
-    ".jpeg",
-    ".png",
-    ".webp",
-}
-
+ALLOWED_EXTS = {".pdf", ".doc", ".docx", ".jpg", ".jpeg", ".png", ".webp"}
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 
 # =========================
-# Modern + Responsive CSS
+# Modern CSS
 # =========================
 st.markdown(
     """
 <style>
-.block-container { padding-top: 1rem; padding-bottom: 2rem; max-width: 1400px; }
-
-.bh-card {
-  background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03));
-  border: 1px solid rgba(148, 163, 184, 0.20);
-  border-radius: 18px;
-  padding: 16px 16px;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.22);
+/* Page background + spacing */
+.stApp {
+  background:
+    radial-gradient(1200px 600px at 20% -10%, rgba(56,189,248,0.18), transparent 60%),
+    radial-gradient(1000px 700px at 110% 10%, rgba(167,139,250,0.18), transparent 55%),
+    radial-gradient(900px 500px at 20% 110%, rgba(34,197,94,0.12), transparent 55%),
+    linear-gradient(180deg, rgba(3,7,18,1) 0%, rgba(8,12,24,1) 100%);
 }
-.bh-title { font-size: 26px; font-weight: 800; margin: 0; }
-.bh-sub { color: rgba(229,231,235,0.75); margin-top: 4px; font-size: 13px; }
 
+.block-container{
+  padding-top: 1.25rem;
+  padding-bottom: 2.5rem;
+  max-width: 1480px;
+}
+
+/* Hide Streamlit chrome a bit */
+header { visibility: hidden; height: 0; }
+#MainMenu { visibility: hidden; }
+footer { visibility: hidden; }
+
+/* Card styles */
+.bh-surface{
+  border-radius: 22px;
+  border: 1px solid rgba(148,163,184,0.18);
+  background: rgba(255,255,255,0.06);
+  box-shadow: 0 18px 60px rgba(0,0,0,0.35);
+}
+
+.bh-panel{
+  border-radius: 22px;
+  border: 1px solid rgba(148,163,184,0.18);
+  background: rgba(255,255,255,0.05);
+  box-shadow: 0 14px 45px rgba(0,0,0,0.32);
+  padding: 16px 16px;
+}
+
+.bh-title{
+  font-size: 28px;
+  font-weight: 950;
+  letter-spacing: -0.03em;
+  margin: 0;
+}
+.bh-sub{
+  opacity: .74;
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+/* Badge */
 .bh-badge {
   display:inline-flex; align-items:center;
-  padding: 6px 10px;
+  padding: 7px 12px;
   border-radius: 999px;
-  border: 1px solid rgba(255,255,255,0.15);
-  background: rgba(0,0,0,0.18);
-  font-weight: 800;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(0,0,0,0.22);
+  font-weight: 900;
   font-size: 12px;
   letter-spacing: 0.10em;
 }
 
-.stButton > button {
-  border-radius: 14px !important;
-  border: 1px solid rgba(148,163,184,0.20) !important;
-  padding: 0.60rem 0.85rem !important;
+/* Stat cards */
+.bh-stats{
+  display:grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+.bh-stat{
+  border-radius: 18px;
+  border: 1px solid rgba(148,163,184,0.18);
+  background: rgba(255,255,255,0.05);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.28);
+  padding: 14px 14px;
+}
+.bh-stat-k{ opacity:.75; font-size:12px; }
+.bh-stat-v{ font-size:30px; font-weight:950; letter-spacing:-0.02em; margin-top:4px; }
+
+@media (max-width: 1100px){
+  .bh-stats{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 768px){
+  .block-container { padding-left: 0.9rem; padding-right: 0.9rem; }
+  .bh-stats{ grid-template-columns: 1fr; }
+  input, textarea { font-size:16px !important; } /* prevents iPhone zoom */
 }
 
-.stTextInput input, .stTextArea textarea, .stNumberInput input {
+/* Buttons + inputs */
+.stButton>button{
+  border-radius: 14px !important;
+  border: 1px solid rgba(148,163,184,0.22) !important;
+  padding: 0.62rem 0.9rem !important;
+}
+.stTextInput input, .stTextArea textarea, .stNumberInput input{
   border-radius: 14px !important;
 }
 
-@media (max-width: 768px) {
-  .block-container { padding-left: 0.85rem; padding-right: 0.85rem; }
-  .stButton > button { width: 100%; }
-  input, textarea { font-size: 16px !important; } /* prevents iPhone zoom */
+/* Tabs a bit cleaner */
+.stTabs [data-baseweb="tab"]{
+  font-weight: 800;
 }
 </style>
 """,
@@ -208,7 +246,6 @@ def init_db():
         )
         """)
 
-        # NEW: files table for PDFs, Word docs, extra images (invoices, warranty, etc.)
         conn.execute("""
         CREATE TABLE IF NOT EXISTS boat_files (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -231,9 +268,6 @@ def badge_html(status: str) -> str:
     color = STATUS_COLOR.get(status, "#94A3B8")
     return f'<span class="bh-badge" style="color:{color}; border-color:{color};">{status.upper()}</span>'
 
-# =========================
-# Boat CRUD
-# =========================
 def insert_boat(data: dict) -> int:
     t = now_iso()
     with db() as conn:
@@ -277,23 +311,19 @@ def list_boats(query: str = "", status: str = "All"):
     q = f"%{query.strip()}%"
     with db() as conn:
         if status == "All":
-            rows = conn.execute("""
+            return conn.execute("""
                 SELECT * FROM boats
                 WHERE (make LIKE ? OR model LIKE ? OR hin LIKE ? OR stock_number LIKE ? OR customer_name LIKE ?)
                 ORDER BY updated_at DESC
             """, (q, q, q, q, q)).fetchall()
-        else:
-            rows = conn.execute("""
-                SELECT * FROM boats
-                WHERE status = ?
-                  AND (make LIKE ? OR model LIKE ? OR hin LIKE ? OR stock_number LIKE ? OR customer_name LIKE ?)
-                ORDER BY updated_at DESC
-            """, (status, q, q, q, q, q)).fetchall()
-    return rows
+        return conn.execute("""
+            SELECT * FROM boats
+            WHERE status = ?
+              AND (make LIKE ? OR model LIKE ? OR hin LIKE ? OR stock_number LIKE ? OR customer_name LIKE ?)
+            ORDER BY updated_at DESC
+        """, (status, q, q, q, q, q)).fetchall()
 
-# =========================
 # Photos
-# =========================
 def add_photo(boat_id: int, filename: str):
     with db() as conn:
         conn.execute("""
@@ -330,13 +360,10 @@ def save_uploaded_images(boat_id: int, make: str, model: str, files) -> int:
         ext = os.path.splitext(f.name)[1].lower()
         if ext not in IMAGE_EXTS:
             continue
-
         out_name = f"{base}-{datetime.now().strftime('%Y%m%d-%H%M%S')}-{count}{ext}"
         out_path = os.path.join(PHOTOS_DIR, out_name)
 
         img = Image.open(f).convert("RGB")
-
-        # Resize for speed (helps iPhone a lot)
         max_side = 2200
         w, h = img.size
         scale = min(1.0, max_side / float(max(w, h)))
@@ -346,12 +373,9 @@ def save_uploaded_images(boat_id: int, make: str, model: str, files) -> int:
         img.save(out_path, quality=88)
         add_photo(boat_id, out_name)
         count += 1
-
     return count
 
-# =========================
-# Files (PDF / Word / images per boat)
-# =========================
+# Files
 def add_file(boat_id: int, filename: str, original_name: str, category: str, ext: str):
     with db() as conn:
         conn.execute("""
@@ -375,7 +399,6 @@ def delete_file(file_id: int):
         boat_id = int(row["boat_id"])
         filename = row["filename"]
         conn.execute("DELETE FROM boat_files WHERE id=?", (file_id,))
-
     boat_folder = os.path.join(FILES_DIR, str(boat_id))
     path = os.path.join(boat_folder, filename)
     if os.path.exists(path):
@@ -385,10 +408,6 @@ def delete_file(file_id: int):
             pass
 
 def save_uploaded_docs(boat_id: int, make: str, model: str, category: str, files) -> int:
-    """
-    Save PDFs, Word docs, and images as attachments for a boat.
-    Stored under /data/files/<boat_id>/ on Render.
-    """
     boat_folder = os.path.join(FILES_DIR, str(boat_id))
     os.makedirs(boat_folder, exist_ok=True)
 
@@ -398,7 +417,6 @@ def save_uploaded_docs(boat_id: int, make: str, model: str, category: str, files
     for f in files:
         original = f.name
         ext = os.path.splitext(original)[1].lower()
-
         if ext not in ALLOWED_EXTS:
             continue
 
@@ -414,16 +432,11 @@ def save_uploaded_docs(boat_id: int, make: str, model: str, category: str, files
 
     return count
 
-# =========================
-# Delete boat (and clean folders)
-# =========================
 def delete_boat(boat_id: int):
-    # Delete DB rows (cascades to photo/files tables)
     photos = get_photos(boat_id)
     with db() as conn:
         conn.execute("DELETE FROM boats WHERE id=?", (boat_id,))
 
-    # Remove photo files
     for p in photos:
         path = os.path.join(PHOTOS_DIR, p["filename"])
         if os.path.exists(path):
@@ -432,7 +445,6 @@ def delete_boat(boat_id: int):
             except OSError:
                 pass
 
-    # Remove files folder
     boat_folder = os.path.join(FILES_DIR, str(boat_id))
     if os.path.isdir(boat_folder):
         try:
@@ -454,25 +466,34 @@ def delete_boat(boat_id: int):
 init_db()
 
 # =========================
-# Header (Paradigm logo + title)
+# Header bar (logo + title + quick actions)
 # =========================
-left_h, right_h = st.columns([1, 4], vertical_alignment="center")
-with left_h:
+h1, h2, h3 = st.columns([1.2, 4.5, 2.3], vertical_alignment="center")
+
+with h1:
     if os.path.exists(LOGO_PATH):
-        st.image(LOGO_PATH, use_container_width=True)
+        st.image(LOGO_PATH, width=230)
     else:
         st.write("")
 
-with right_h:
+with h2:
+    st.markdown(
+        """
+<div class="bh-panel">
+  <div class="bh-title">BoatHub</div>
+  <div class="bh-sub">Inventory + service tracking with photos and documents</div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+with h3:
     st.markdown(
         f"""
-<div class="bh-card">
-  <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap;">
-    <div>
-      <div class="bh-title">BoatHub</div>
-      <div class="bh-sub">Inventory + service tracking with photos and documents</div>
-    </div>
-    <div class="bh-sub"><b>DB:</b> {DB_PATH} &nbsp; • &nbsp; <b>Photos:</b> {PHOTOS_DIR}</div>
+<div class="bh-panel" style="display:flex;flex-direction:column;gap:10px;">
+  <div style="opacity:.72;font-size:12px;">
+    <b>DB:</b> {DB_PATH}<br/>
+    <b>Photos:</b> {PHOTOS_DIR}
   </div>
 </div>
 """,
@@ -482,7 +503,7 @@ with right_h:
 st.write("")
 
 # =========================
-# Sidebar
+# Sidebar (controls)
 # =========================
 with st.sidebar:
     st.markdown("### Controls")
@@ -491,10 +512,10 @@ with st.sidebar:
     search = st.text_input("Search", value="", placeholder="make, model, HIN, stock, customer…")
     status_filter = st.selectbox("Status filter", ["All"] + STATUSES, index=0)
     st.markdown("---")
-    st.caption("Tip: On iPhone, use the tabs (Overview / Photos / Documents / Edit).")
+    st.caption("Tip: iPhone users can use the tabs (Overview / Photos / Documents / Edit).")
 
 # =========================
-# Metrics
+# Stat cards (modern)
 # =========================
 all_boats = list_boats("", "All")
 total = len(all_boats)
@@ -503,19 +524,25 @@ service = sum(1 for b in all_boats if b["status"] == "Customer Service")
 today_prefix = datetime.now().date().isoformat()
 updated_today = sum(1 for b in all_boats if (b["updated_at"] or "").startswith(today_prefix))
 
-m1, m2, m3, m4 = st.columns(4)
-m1.metric("Total", total)
-m2.metric("For Sale", for_sale)
-m3.metric("Service", service)
-m4.metric("Updated today", updated_today)
+st.markdown(
+    f"""
+<div class="bh-stats">
+  <div class="bh-stat"><div class="bh-stat-k">Total</div><div class="bh-stat-v">{total}</div></div>
+  <div class="bh-stat"><div class="bh-stat-k">For Sale</div><div class="bh-stat-v">{for_sale}</div></div>
+  <div class="bh-stat"><div class="bh-stat-k">Service</div><div class="bh-stat-v">{service}</div></div>
+  <div class="bh-stat"><div class="bh-stat-k">Updated today</div><div class="bh-stat-v">{updated_today}</div></div>
+</div>
+""",
+    unsafe_allow_html=True,
+)
 
 st.write("")
 
 # =========================
-# Add New Boat
+# Add New
 # =========================
 if mode == "Add New":
-    st.markdown('<div class="bh-card">', unsafe_allow_html=True)
+    st.markdown('<div class="bh-panel">', unsafe_allow_html=True)
     st.markdown("## Add a boat")
 
     with st.form("add_boat_form"):
@@ -580,15 +607,15 @@ if mode == "Add New":
     st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================
-# Browse + Details
+# Browse + Details (spaced cards)
 # =========================
 else:
     boats = list_boats(search, status_filter)
 
-    left, right = st.columns([1, 2], gap="large")
+    left, right = st.columns([1.05, 2.15], gap="large")
 
     with left:
-        st.markdown('<div class="bh-card">', unsafe_allow_html=True)
+        st.markdown('<div class="bh-panel">', unsafe_allow_html=True)
         st.markdown("## Browse")
         st.caption(f"{len(boats)} result(s).")
 
@@ -617,13 +644,15 @@ else:
     docs = get_files(selected_id)
 
     with right:
-        st.markdown('<div class="bh-card">', unsafe_allow_html=True)
+        st.markdown('<div class="bh-panel">', unsafe_allow_html=True)
 
         st.markdown(
             f"""
-<div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">
   <div>
-    <div style="font-size:22px; font-weight:800;">Boat #{boat['id']} — {boat['year'] or ''} {boat['make']} {boat['model']}</div>
+    <div style="font-size:22px;font-weight:950;letter-spacing:-0.02em;">
+      Boat #{boat['id']} — {boat['year'] or ''} {boat['make']} {boat['model']}
+    </div>
     <div class="bh-sub">Last updated: {boat['updated_at']}</div>
   </div>
   <div>{badge_html(boat['status'])}</div>
@@ -635,15 +664,20 @@ else:
         tab_overview, tab_photos, tab_docs, tab_edit = st.tabs(["Overview", "Photos", "Documents", "Edit"])
 
         with tab_overview:
-            st.write(f"**Stock #:** {boat['stock_number'] or '—'}")
-            st.write(f"**HIN:** {boat['hin'] or '—'}")
-            st.write(f"**Location:** {boat['location'] or '—'}")
-            st.write(f"**Length:** {boat['length_ft'] or '—'} ft")
-            st.write(f"**Engine:** {boat['engine'] or '—'}")
+            g1, g2 = st.columns(2)
+            with g1:
+                st.write(f"**Stock #:** {boat['stock_number'] or '—'}")
+                st.write(f"**HIN:** {boat['hin'] or '—'}")
+                st.write(f"**Location:** {boat['location'] or '—'}")
+            with g2:
+                st.write(f"**Length:** {boat['length_ft'] or '—'} ft")
+                st.write(f"**Engine:** {boat['engine'] or '—'}")
+                st.write(f"**Status:** {boat['status']}")
 
             st.markdown("### Customer")
-            st.write(f"**Name:** {boat['customer_name'] or '—'}")
-            st.write(f"**Phone:** {boat['customer_phone'] or '—'}")
+            c1, c2 = st.columns(2)
+            c1.write(f"**Name:** {boat['customer_name'] or '—'}")
+            c2.write(f"**Phone:** {boat['customer_phone'] or '—'}")
 
             st.markdown("### Notes")
             st.write(boat["notes"] or "—")
@@ -651,14 +685,12 @@ else:
         with tab_photos:
             st.markdown("### Gallery")
             if photos:
-                # 1-per-row: best for iPhone and still looks good on desktop
                 for p in photos:
                     path = os.path.join(PHOTOS_DIR, p["filename"])
                     if os.path.exists(path):
                         st.image(path, use_container_width=True)
                     else:
                         st.warning("A photo file is missing on disk.")
-
                     if st.button("Delete photo", key=f"delphoto_{p['id']}", use_container_width=True):
                         delete_photo(p["id"])
                         st.rerun()
@@ -679,21 +711,14 @@ else:
                 st.rerun()
 
         with tab_docs:
-            st.markdown("### Documents (Warranty / Invoice / Service Order / etc.)")
-
-            # Filter view by category
+            st.markdown("### Documents")
             ccat1, ccat2 = st.columns([2, 3])
             with ccat1:
                 view_cat = st.selectbox("View category", ["All"] + DOC_CATEGORIES, index=0)
             with ccat2:
                 st.caption("Allowed: PDF, DOC, DOCX, JPG/PNG/WEBP")
 
-            # Show existing docs
-            shown = []
-            if view_cat == "All":
-                shown = docs
-            else:
-                shown = [d for d in docs if d["category"] == view_cat]
+            shown = docs if view_cat == "All" else [d for d in docs if d["category"] == view_cat]
 
             if shown:
                 for d in shown:
@@ -705,12 +730,11 @@ else:
                     st.markdown(f"**{title}**")
                     st.caption(f"Category: {d['category']} • Uploaded: {d['uploaded_at']}")
 
-                    # Preview images right on the page
                     if ext in IMAGE_EXTS and os.path.exists(file_path):
                         st.image(file_path, use_container_width=True)
 
-                    c1, c2 = st.columns([1, 1])
-                    with c1:
+                    b1, b2 = st.columns([1, 1])
+                    with b1:
                         if os.path.exists(file_path):
                             with open(file_path, "rb") as fp:
                                 st.download_button(
@@ -723,7 +747,7 @@ else:
                                 )
                         else:
                             st.warning("Missing file on disk")
-                    with c2:
+                    with b2:
                         if st.button("Delete", key=f"deldoc_{d['id']}", use_container_width=True):
                             delete_file(d["id"])
                             st.rerun()
@@ -757,7 +781,8 @@ else:
                 model = c2.text_input("Model *", value=boat["model"] or "")
 
                 c3, c4 = st.columns(2)
-                year = c3.number_input("Year", min_value=1900, max_value=2100, value=int(boat["year"] or datetime.now().year), step=1)
+                year = c3.number_input("Year", min_value=1900, max_value=2100,
+                                       value=int(boat["year"] or datetime.now().year), step=1)
                 stock_number = c4.text_input("Stock #", value=boat["stock_number"] or "")
 
                 c5, c6 = st.columns(2)
@@ -765,7 +790,8 @@ else:
                 location = c6.text_input("Location", value=boat["location"] or "")
 
                 c7, c8 = st.columns(2)
-                length_ft = c7.number_input("Length (ft)", min_value=0.0, max_value=200.0, value=float(boat["length_ft"] or 0.0), step=0.5)
+                length_ft = c7.number_input("Length (ft)", min_value=0.0, max_value=200.0,
+                                            value=float(boat["length_ft"] or 0.0), step=0.5)
                 engine = c8.text_input("Engine", value=boat["engine"] or "")
 
                 st.markdown("### Customer")
