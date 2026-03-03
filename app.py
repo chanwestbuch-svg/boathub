@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # =========================
-# Simple Login Gate
+# Login Gate (optional)
 # =========================
 def require_password():
     """
@@ -112,7 +112,7 @@ BADGE_LABEL = {
     "Other": "OTHER",
 }
 
-# Clean black/white badge styles
+# Clean black/white badge styles: (bg, fg, border)
 BADGE_STYLE = {
     "For Sale": ("#111827", "#FFFFFF", "#111827"),
     "Customer Service": ("#FFFFFF", "#111827", "#111827"),
@@ -124,33 +124,23 @@ BADGE_STYLE = {
 }
 
 # =========================
-# Modern “luxury” CSS (black/white)
+# CSS (Clean black/white premium)
 # =========================
 st.markdown(
     """
 <style>
-/* Background + global spacing */
-.stApp {
-  background: #F6F7FB;
-}
-.block-container {
-  padding-top: 1.25rem;
-  padding-bottom: 2.5rem;
-  max-width: 1480px;
-}
+.stApp { background: #F6F7FB; }
+.block-container { padding-top: 1.25rem; padding-bottom: 2.5rem; max-width: 1480px; }
 
-/* Sidebar: white, clean */
 section[data-testid="stSidebar"] {
   background: #FFFFFF;
   border-right: 1px solid rgba(17,24,39,0.10);
 }
 
-/* Hide Streamlit chrome */
 #MainMenu { visibility: hidden; }
 footer { visibility: hidden; }
 header { visibility: hidden; height: 0; }
 
-/* Typography helpers */
 .bh-title {
   font-size: 30px;
   font-weight: 950;
@@ -171,7 +161,6 @@ header { visibility: hidden; height: 0; }
   text-transform: uppercase;
 }
 
-/* Cards */
 .bh-card {
   background: #FFFFFF;
   border: 1px solid rgba(17,24,39,0.10);
@@ -187,7 +176,6 @@ header { visibility: hidden; height: 0; }
   padding: 16px 16px;
 }
 
-/* Stat cards */
 .bh-stats {
   display:grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -221,7 +209,6 @@ header { visibility: hidden; height: 0; }
   .bh-stats { grid-template-columns: 1fr; }
 }
 
-/* Badge */
 .bh-badge {
   display:inline-flex;
   align-items:center;
@@ -233,7 +220,6 @@ header { visibility: hidden; height: 0; }
   text-transform: uppercase;
 }
 
-/* Buttons: black, clean */
 .stButton>button {
   border-radius: 14px !important;
   border: 1px solid rgba(17,24,39,0.15) !important;
@@ -241,37 +227,28 @@ header { visibility: hidden; height: 0; }
   color: #FFFFFF !important;
   padding: 0.62rem 0.95rem !important;
 }
-.stButton>button:hover {
-  background: #0B1220 !important;
-}
+.stButton>button:hover { background: #0B1220 !important; }
 
-/* Inputs: white + subtle border */
 .stTextInput input, .stTextArea textarea, .stNumberInput input {
   border-radius: 14px !important;
   border: 1px solid rgba(17,24,39,0.12) !important;
   background: #FFFFFF !important;
   color: #0B1220 !important;
 }
-
-/* Select boxes */
 div[data-baseweb="select"] > div {
   border-radius: 14px !important;
   border: 1px solid rgba(17,24,39,0.12) !important;
   background: #FFFFFF !important;
 }
 
-/* Make Streamlit columns stack on iPhone */
 @media (max-width: 768px) {
   .block-container { padding-left: 0.95rem; padding-right: 0.95rem; }
-  input, textarea { font-size: 16px !important; } /* prevents iPhone zoom */
+  input, textarea { font-size: 16px !important; } /* stops iPhone zoom */
   div[data-testid="stHorizontalBlock"] { flex-direction: column !important; }
   div[data-testid="column"] { width: 100% !important; }
 }
 
-/* Tabs: a bit cleaner */
-.stTabs [data-baseweb="tab"] {
-  font-weight: 900;
-}
+.stTabs [data-baseweb="tab"] { font-weight: 900; }
 </style>
 """,
     unsafe_allow_html=True,
@@ -437,6 +414,7 @@ def delete_photo(photo_id: int):
 def save_uploaded_images(boat_id: int, make: str, model: str, files) -> int:
     count = 0
     base = slugify(f"{boat_id}-{make}-{model}")
+
     for f in files:
         ext = os.path.splitext(f.name)[1].lower()
         if ext not in IMAGE_EXTS:
@@ -446,8 +424,6 @@ def save_uploaded_images(boat_id: int, make: str, model: str, files) -> int:
         out_path = os.path.join(PHOTOS_DIR, out_name)
 
         img = Image.open(f).convert("RGB")
-
-        # Resize for performance
         max_side = 2400
         w, h = img.size
         scale = min(1.0, max_side / float(max(w, h)))
@@ -555,16 +531,12 @@ def delete_boat(boat_id: int):
 init_db()
 
 # =========================
-# Header (clean + spaced)
+# Header
 # =========================
 h1, h2 = st.columns([1.2, 4.8], vertical_alignment="center")
-
 with h1:
     if os.path.exists(LOGO_PATH):
         st.image(LOGO_PATH, width=240)
-    else:
-        st.write("")
-
 with h2:
     st.markdown(
         """
@@ -580,19 +552,17 @@ with h2:
 st.write("")
 
 # =========================
-# Sidebar controls
+# Sidebar (Search/Filter only)
 # =========================
 with st.sidebar:
-    st.markdown("### Controls")
-    mode = st.radio("Mode", ["Browse", "Add New"], index=0)
-    st.markdown("---")
+    st.markdown("### Search / Filter")
     search = st.text_input("Search", value="", placeholder="make, model, HIN, stock, customer…")
     status_filter = st.selectbox("Status filter", ["All"] + STATUSES, index=0)
     st.markdown("---")
-    st.caption("Tip: Works on iPhone. Tabs keep everything organized.")
+    st.caption("Use the tabs on the main page to Browse or Add.")
 
 # =========================
-# Modern stat cards
+# Stats
 # =========================
 all_boats = list_boats("", "All")
 total = len(all_boats)
@@ -612,13 +582,17 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
-
 st.write("")
 
 # =========================
-# Add New Boat
+# MAIN MODE TABS (fixes your issue)
 # =========================
-if mode == "Add New":
+tab_browse, tab_add = st.tabs(["Browse Boats", "Add New Boat"])
+
+# =========================
+# ADD NEW BOAT TAB
+# =========================
+with tab_add:
     st.markdown('<div class="bh-card-tight">', unsafe_allow_html=True)
     st.markdown("## Add a boat")
 
@@ -680,14 +654,15 @@ if mode == "Add New":
                 st.success(f"Created Boat #{boat_id}. Uploaded {n} photo(s).")
             else:
                 st.success(f"Created Boat #{boat_id}.")
-            st.info("Switch to Browse to view/edit it.")
+
+            st.info("Now click the 'Browse Boats' tab to view it.")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================
-# Browse + Details
+# BROWSE TAB
 # =========================
-else:
+with tab_browse:
     boats = list_boats(search, status_filter)
 
     left, right = st.columns([1.05, 2.15], gap="large")
@@ -862,7 +837,8 @@ else:
                 model = e2.text_input("Model *", value=boat["model"] or "")
 
                 e3, e4 = st.columns(2)
-                year = e3.number_input("Year", min_value=1900, max_value=2100, value=int(boat["year"] or datetime.now().year), step=1)
+                year = e3.number_input("Year", min_value=1900, max_value=2100,
+                                       value=int(boat["year"] or datetime.now().year), step=1)
                 stock_number = e4.text_input("Stock #", value=boat["stock_number"] or "")
 
                 e5, e6 = st.columns(2)
@@ -870,7 +846,8 @@ else:
                 location = e6.text_input("Location", value=boat["location"] or "")
 
                 e7, e8 = st.columns(2)
-                length_ft = e7.number_input("Length (ft)", min_value=0.0, max_value=200.0, value=float(boat["length_ft"] or 0.0), step=0.5)
+                length_ft = e7.number_input("Length (ft)", min_value=0.0, max_value=200.0,
+                                            value=float(boat["length_ft"] or 0.0), step=0.5)
                 engine = e8.text_input("Engine", value=boat["engine"] or "")
 
                 st.markdown("### Customer")
