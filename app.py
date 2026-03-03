@@ -2,14 +2,59 @@ import os
 import re
 import sqlite3
 from datetime import datetime
-from typing import List, Optional
 
 import streamlit as st
 from PIL import Image
 
-APP_DIR = os.path.abspath(os.path.dirname(__file__))
-DB_PATH = os.path.join(APP_DIR, "boats.db")
-PHOTOS_DIR = os.path.join(APP_DIR, "photos")
+# =========================
+# 1) APP CONFIG (must be before most Streamlit UI)
+# =========================
+st.set_page_config(page_title="BoatHub", page_icon="🚤", layout="wide")
+
+# =========================
+# 2) PASSWORD GATE (ONE shared password)
+#   - Set this on Render as env var: BOATHUB_PASSWORD
+# =========================
+def require_password():
+    if "authed" not in st.session_state:
+        st.session_state.authed = False
+
+    if st.session_state.authed:
+        return
+
+    st.markdown("## 🚤 BoatHub Login")
+    pw = st.text_input("Password", type="password")
+
+    c1, c2 = st.columns([1, 3])
+    with c1:
+        clicked = st.button("Sign in", use_container_width=True)
+
+    if clicked:
+        real_pw = os.environ.get("BOATHUB_PASSWORD", "")
+        if not real_pw:
+            st.error("BOATHUB_PASSWORD is not set on the server.")
+        elif pw == real_pw:
+            st.session_state.authed = True
+            st.rerun()
+        else:
+            st.error("Wrong password.")
+
+    st.stop()
+
+require_password()
+
+# =========================
+# 3) STORAGE PATHS
+#   - On Render: set env var RENDER=1 and mount disk at /data
+#   - On Windows local: it uses your folder
+# =========================
+if os.environ.get("RENDER"):
+    DATA_DIR = "/data"
+else:
+    DATA_DIR = os.path.abspath(os.path.dirname(__file__))
+
+DB_PATH = os.path.join(DATA_DIR, "boats.db")
+PHOTOS_DIR = os.path.join(DATA_DIR, "photos")
 
 STATUSES = [
     "For Sale",
@@ -21,8 +66,77 @@ STATUSES = [
     "Other",
 ]
 
+STATUS_BADGE = {
+    "For Sale": ("#10B981", "FOR SALE"),
+    "Customer Service": ("#38BDF8", "SERVICE"),
+    "On Hold": ("#F59E0B", "ON HOLD"),
+    "Sold": ("#A78BFA", "SOLD"),
+    "Delivered": ("#22C55E", "DELIVERED"),
+    "Storage": ("#94A3B8", "STORAGE"),
+    "Other": ("#F472B6", "OTHER"),
+}
+
+# =========================
+# 4) CSS (modern / futuristic)
+# =========================
+def inject_css():
+    st.markdown(
+        """
+        <style>
+          .block-container { padding-top: 1.2rem; padding-bottom: 2rem; max-width: 1400px; }
+          header, footer { visibility: hidden; height: 0px; }
+
+          .card {
+            background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03));
+            border: 1px solid rgba(148, 163, 184, 0.18);
+            border-radius: 18px;
+            padding: 16px 16px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+          }
+
+          .titlebar {
+            display:flex; align-items:center; justify-content:space-between;
+            gap: 10px;
+          }
+
+          .badge {
+            display:inline-flex;
+            align-items:center;
+            padding: 6px 10px;
+            border-radius: 999px;
+            border: 1px solid rgba(255,255,255,0.15);
+            background: rgba(0,0,0,0.15);
+            font-weight: 800;
+            font-size: 12px;
+            letter-spacing: 0.12em;
+          }
+
+          .muted { color: rgba(229,231,235,0.75); font-size: 13px; }
+
+          .stButton > button {
+            border-radius: 14px !important;
+            border: 1px solid rgba(148,163,184,0.20) !important;
+            padding: 0.55rem 0.85rem !important;
+          }
+
+          .stTextInput input, .stTextArea textarea, .stNumberInput input, .stSelectbox div[data-baseweb="select"] {
+            border-radius: 14px !important;
+          }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+inject_css()
+
+# =========================
+# 5) DB + FILE HELPERS
+# =========================
 def ensure_storage():
     os.makedirs(PHOTOS_DIR, exist_ok=True)
+
+def now_iso():
+    return datetime.now().isoformat(timespec="seconds")
 
 def db():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -30,6 +144,7 @@ def db():
     return conn
 
 def init_db():
+    ensure_storage()
     with db() as conn:
         conn.execute("""
         CREATE TABLE IF NOT EXISTS boats (
@@ -61,13 +176,14 @@ def init_db():
         """)
         conn.execute("PRAGMA foreign_keys = ON;")
 
-def now_iso():
-    return datetime.now().isoformat(timespec="seconds")
-
 def slugify(s: str) -> str:
     s = s.strip().lower()
     s = re.sub(r"[^a-z0-9]+", "-", s)
     return s.strip("-") or "boat"
+
+def status_badge_html(status: str) -> str:
+    color, label = STATUS_BADGE.get(status, ("#94A3B8", status.upper()))
+    return f"""<span class="badge" style="border-color:{color}; color:{color}">{label}</span>"""
 
 def insert_boat(data: dict) -> int:
     t = now_iso()
@@ -104,18 +220,35 @@ def update_boat(boat_id: int, data: dict):
             WHERE id=:id
         """, {**data, "updated_at": t, "id": boat_id})
 
-def delete_boat(boat_id: int):
-    # Delete photos from disk too
-    photos = get_photos(boat_id)
+def get_boat(boat_id: int):
     with db() as conn:
-        conn.execute("DELETE FROM boats WHERE id=?", (boat_id,))
-    for p in photos:
-        path = os.path.join(PHOTOS_DIR, p["filename"])
-        if os.path.exists(path):
-            try:
-                os.remove(path)
-            except OSError:
-                pass
+        return conn.execute("SELECT * FROM boats WHERE id=?", (boat_id,)).fetchone()
+
+def get_photos(boat_id: int):
+    with db() as conn:
+        return conn.execute("""
+            SELECT * FROM boat_photos
+            WHERE boat_id=?
+            ORDER BY uploaded_at DESC
+        """, (boat_id,)).fetchall()
+
+def list_boats(query: str = "", status: str = "All"):
+    q = f"%{query.strip()}%"
+    with db() as conn:
+        if status == "All":
+            rows = conn.execute("""
+                SELECT * FROM boats
+                WHERE (make LIKE ? OR model LIKE ? OR hin LIKE ? OR stock_number LIKE ? OR customer_name LIKE ?)
+                ORDER BY updated_at DESC
+            """, (q, q, q, q, q)).fetchall()
+        else:
+            rows = conn.execute("""
+                SELECT * FROM boats
+                WHERE status = ?
+                  AND (make LIKE ? OR model LIKE ? OR hin LIKE ? OR stock_number LIKE ? OR customer_name LIKE ?)
+                ORDER BY updated_at DESC
+            """, (status, q, q, q, q, q)).fetchall()
+    return rows
 
 def add_photo(boat_id: int, filename: str):
     with db() as conn:
@@ -138,105 +271,115 @@ def delete_photo(photo_id: int):
         except OSError:
             pass
 
-def list_boats(query: str = "", status: str = "All"):
-    q = f"%{query.strip()}%"
+def delete_boat(boat_id: int):
+    photos = get_photos(boat_id)
     with db() as conn:
-        if status == "All":
-            rows = conn.execute("""
-                SELECT * FROM boats
-                WHERE (make LIKE ? OR model LIKE ? OR hin LIKE ? OR stock_number LIKE ? OR customer_name LIKE ?)
-                ORDER BY updated_at DESC
-            """, (q, q, q, q, q)).fetchall()
-        else:
-            rows = conn.execute("""
-                SELECT * FROM boats
-                WHERE status = ?
-                  AND (make LIKE ? OR model LIKE ? OR hin LIKE ? OR stock_number LIKE ? OR customer_name LIKE ?)
-                ORDER BY updated_at DESC
-            """, (status, q, q, q, q, q)).fetchall()
-    return rows
-
-def get_boat(boat_id: int):
-    with db() as conn:
-        return conn.execute("SELECT * FROM boats WHERE id=?", (boat_id,)).fetchone()
-
-def get_photos(boat_id: int):
-    with db() as conn:
-        return conn.execute("""
-            SELECT * FROM boat_photos
-            WHERE boat_id=?
-            ORDER BY uploaded_at DESC
-        """, (boat_id,)).fetchall()
+        conn.execute("DELETE FROM boats WHERE id=?", (boat_id,))
+    for p in photos:
+        path = os.path.join(PHOTOS_DIR, p["filename"])
+        if os.path.exists(path):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
 
 def save_uploaded_images(boat_id: int, make: str, model: str, files) -> int:
+    ensure_storage()
     count = 0
     base = slugify(f"{boat_id}-{make}-{model}")
     for f in files:
-        # Keep original extension if possible
-        name = f.name
-        ext = os.path.splitext(name)[1].lower()
+        ext = os.path.splitext(f.name)[1].lower()
         if ext not in [".jpg", ".jpeg", ".png", ".webp"]:
             ext = ".jpg"
+
         out_name = f"{base}-{datetime.now().strftime('%Y%m%d-%H%M%S')}-{count}{ext}"
         out_path = os.path.join(PHOTOS_DIR, out_name)
 
-        # Re-save via PIL to avoid weird formats + limit size a bit
-        img = Image.open(f)
-        img = img.convert("RGB")
-        # Optional: resize to max 2000px
-        max_side = 2000
+        img = Image.open(f).convert("RGB")
+
+        # Keep it snappy: resize big images
+        max_side = 2200
         w, h = img.size
         scale = min(1.0, max_side / float(max(w, h)))
         if scale < 1.0:
             img = img.resize((int(w * scale), int(h * scale)))
-        img.save(out_path, quality=88)
 
+        img.save(out_path, quality=88)
         add_photo(boat_id, out_name)
         count += 1
     return count
 
-# ---------------- UI ----------------
-
-ensure_storage()
+# =========================
+# 6) INIT
+# =========================
 init_db()
 
-st.set_page_config(page_title="Boat Inventory & Service Tracker", layout="wide")
-st.title("Boat Inventory & Service Tracker")
+# =========================
+# 7) UI
+# =========================
+st.markdown(
+    f"""
+    <div class="card">
+      <div class="titlebar">
+        <div>
+          <div style="font-size:26px; font-weight:900; letter-spacing:0.01em;">🚤 BoatHub</div>
+          <div class="muted">Inventory + service tracking with photo uploads</div>
+        </div>
+        <div class="muted">DB: <b>{os.path.basename(DB_PATH)}</b> • Photos: <b>{os.path.basename(PHOTOS_DIR)}</b></div>
+      </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+st.write("")
 
 with st.sidebar:
-    st.header("Search / Filter")
-    search = st.text_input("Search (make/model/HIN/stock/customer)", value="")
-    status = st.selectbox("Status", ["All"] + STATUSES, index=0)
-    st.divider()
-    st.header("Actions")
-    mode = st.radio("Mode", ["Browse Boats", "Add New Boat"], index=0)
+    st.markdown("### Controls")
+    mode = st.radio("Mode", ["Browse", "Add New"], index=0)
+    st.markdown("---")
+    search = st.text_input("Search", value="", placeholder="make, model, HIN, stock, customer…")
+    status_filter = st.selectbox("Status filter", ["All"] + STATUSES, index=0)
 
-if mode == "Add New Boat":
-    st.subheader("Add a boat")
-    with st.form("add_boat_form", clear_on_submit=False):
+boats_all = list_boats("", "All")
+for_sale = sum(1 for b in boats_all if b["status"] == "For Sale")
+service = sum(1 for b in boats_all if b["status"] == "Customer Service")
+
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("Total boats", len(boats_all))
+m2.metric("For Sale", for_sale)
+m3.metric("Service", service)
+m4.metric("Updated today", sum(1 for b in boats_all if (b["updated_at"] or "").startswith(datetime.now().date().isoformat())))
+
+st.write("")
+
+if mode == "Add New":
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.markdown("## Add a boat")
+
+    with st.form("add_boat_form"):
         c1, c2, c3 = st.columns(3)
         stock_number = c1.text_input("Stock # (optional)")
-        year = c2.number_input("Year (optional)", min_value=1900, max_value=2100, value=2025, step=1)
+        year = c2.number_input("Year", min_value=1900, max_value=2100, value=2025, step=1)
         status_in = c3.selectbox("Status", STATUSES, index=0)
 
         c4, c5, c6 = st.columns(3)
-        make = c4.text_input("Make", value="")
-        model = c5.text_input("Model", value="")
-        hin = c6.text_input("HIN / Serial (optional)", value="")
+        make = c4.text_input("Make *")
+        model = c5.text_input("Model *")
+        hin = c6.text_input("HIN / Serial (optional)")
 
         c7, c8, c9 = st.columns(3)
-        length_ft = c7.number_input("Length (ft, optional)", min_value=0.0, max_value=200.0, value=0.0, step=0.5)
-        engine = c8.text_input("Engine (optional)", value="")
+        length_ft = c7.number_input("Length (ft)", min_value=0.0, max_value=200.0, value=0.0, step=0.5)
+        engine = c8.text_input("Engine (optional)")
         location = c9.text_input("Location (optional)", value="Showroom")
 
         c10, c11 = st.columns(2)
-        customer_name = c10.text_input("Customer name (if service)", value="")
-        customer_phone = c11.text_input("Customer phone (optional)", value="")
+        customer_name = c10.text_input("Customer name (if service)")
+        customer_phone = c11.text_input("Customer phone (optional)")
 
-        notes = st.text_area("Notes", value="", height=120)
+        notes = st.text_area("Notes", height=120)
 
         uploaded = st.file_uploader(
-            "Upload photos (JPG/PNG/WEBP). You can select multiple files.",
+            "Photos (multi-select)",
             type=["jpg", "jpeg", "png", "webp"],
             accept_multiple_files=True,
         )
@@ -261,64 +404,85 @@ if mode == "Add New Boat":
                 "customer_phone": customer_phone.strip() or None,
                 "notes": notes.strip() or None,
             })
+
             if uploaded:
                 n = save_uploaded_images(boat_id, make, model, uploaded)
-                st.success(f"Boat created (ID {boat_id}). Uploaded {n} photo(s).")
+                st.success(f"Created Boat #{boat_id}. Uploaded {n} photo(s).")
             else:
-                st.success(f"Boat created (ID {boat_id}).")
-            st.info("Switch to 'Browse Boats' in the sidebar to view/edit it.")
+                st.success(f"Created Boat #{boat_id}.")
+
+            st.info("Switch to Browse to view/edit it.")
+
+    st.markdown("</div>", unsafe_allow_html=True)
 
 else:
-    boats = list_boats(search, status)
+    boats = list_boats(search, status_filter)
 
-    st.subheader("Boats")
-    st.caption(f"Showing {len(boats)} result(s). Click a boat to view details.")
-
-    # List with a simple selector
     left, right = st.columns([1, 2], gap="large")
 
     with left:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown("## Browse")
+        st.caption(f"{len(boats)} result(s). Select one.")
+
         if not boats:
             st.warning("No boats match your search/filter.")
+            st.markdown("</div>", unsafe_allow_html=True)
             st.stop()
 
-        options = []
+        labels = []
+        id_by_label = {}
         for b in boats:
             label = f"#{b['id']} • {b['year'] or ''} {b['make']} {b['model']} • {b['status']}"
             if b["stock_number"]:
                 label += f" • Stock {b['stock_number']}"
             if b["customer_name"]:
                 label += f" • {b['customer_name']}"
-            options.append((label, b["id"]))
+            labels.append(label)
+            id_by_label[label] = b["id"]
 
-        selected_label = st.selectbox(
-            "Select a boat",
-            [o[0] for o in options],
-            index=0,
-        )
-        selected_id = dict(options)[selected_label]
+        selected_label = st.selectbox("Boat", labels, index=0)
+        selected_id = id_by_label[selected_label]
+        st.markdown("</div>", unsafe_allow_html=True)
 
     boat = get_boat(selected_id)
     photos = get_photos(selected_id)
 
     with right:
-        st.markdown(f"### Boat #{boat['id']} — {boat['year'] or ''} {boat['make']} {boat['model']}")
-        meta_cols = st.columns(4)
-        meta_cols[0].write(f"**Status:** {boat['status']}")
-        meta_cols[1].write(f"**Stock #:** {boat['stock_number'] or '—'}")
-        meta_cols[2].write(f"**HIN:** {boat['hin'] or '—'}")
-        meta_cols[3].write(f"**Location:** {boat['location'] or '—'}")
+        st.markdown('<div class="card">', unsafe_allow_html=True)
 
-        st.write(f"**Length:** {boat['length_ft'] or '—'} ft")
-        st.write(f"**Engine:** {boat['engine'] or '—'}")
-        st.write(f"**Customer:** {boat['customer_name'] or '—'}  {('('+boat['customer_phone']+')') if boat['customer_phone'] else ''}")
+        st.markdown(
+            f"""
+            <div class="titlebar">
+              <div>
+                <div style="font-size:22px; font-weight:900;">Boat #{boat['id']} — {boat['year'] or ''} {boat['make']} {boat['model']}</div>
+                <div class="muted">Last updated: {boat['updated_at']}</div>
+              </div>
+              <div>{status_badge_html(boat['status'])}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        a, b, c, d = st.columns(4)
+        a.write(f"**Stock #:** {boat['stock_number'] or '—'}")
+        b.write(f"**HIN:** {boat['hin'] or '—'}")
+        c.write(f"**Location:** {boat['location'] or '—'}")
+        d.write(f"**Length:** {boat['length_ft'] or '—'} ft")
+
+        e, f = st.columns(2)
+        e.write(f"**Engine:** {boat['engine'] or '—'}")
+        f.write(f"**Customer:** {boat['customer_name'] or '—'}")
+
+        if boat["customer_phone"]:
+            st.write(f"**Customer phone:** {boat['customer_phone']}")
+
         st.write(f"**Notes:** {boat['notes'] or '—'}")
-        st.caption(f"Last updated: {boat['updated_at']}")
 
-        st.divider()
+        st.markdown("---")
         st.markdown("### Photos")
+
         if photos:
-            # Show in grid
             cols = st.columns(3)
             for i, p in enumerate(photos):
                 path = os.path.join(PHOTOS_DIR, p["filename"])
@@ -331,12 +495,11 @@ else:
                         delete_photo(p["id"])
                         st.rerun()
         else:
-            st.info("No photos yet for this boat.")
+            st.info("No photos yet.")
 
-        st.divider()
         st.markdown("### Add more photos")
         more = st.file_uploader(
-            "Upload more photos",
+            "Upload more",
             type=["jpg", "jpeg", "png", "webp"],
             accept_multiple_files=True,
             key="more_photos",
@@ -346,27 +509,27 @@ else:
             st.success(f"Uploaded {n} photo(s).")
             st.rerun()
 
-        st.divider()
-        st.markdown("### Edit boat details")
+        st.markdown("---")
+        st.markdown("### Edit details")
         with st.form("edit_form"):
-            c1, c2, c3 = st.columns(3)
-            stock_number = c1.text_input("Stock #", value=boat["stock_number"] or "")
-            year = c2.number_input("Year", min_value=1900, max_value=2100, value=int(boat["year"] or 2025), step=1)
-            status_in = c3.selectbox("Status", STATUSES, index=STATUSES.index(boat["status"]))
+            e1, e2, e3 = st.columns(3)
+            stock_number = e1.text_input("Stock #", value=boat["stock_number"] or "")
+            year = e2.number_input("Year", min_value=1900, max_value=2100, value=int(boat["year"] or 2025), step=1)
+            status_in = e3.selectbox("Status", STATUSES, index=STATUSES.index(boat["status"]))
 
-            c4, c5, c6 = st.columns(3)
-            make = c4.text_input("Make", value=boat["make"] or "")
-            model = c5.text_input("Model", value=boat["model"] or "")
-            hin = c6.text_input("HIN / Serial", value=boat["hin"] or "")
+            e4, e5, e6 = st.columns(3)
+            make = e4.text_input("Make *", value=boat["make"] or "")
+            model = e5.text_input("Model *", value=boat["model"] or "")
+            hin = e6.text_input("HIN / Serial", value=boat["hin"] or "")
 
-            c7, c8, c9 = st.columns(3)
-            length_ft = c7.number_input("Length (ft)", min_value=0.0, max_value=200.0, value=float(boat["length_ft"] or 0.0), step=0.5)
-            engine = c8.text_input("Engine", value=boat["engine"] or "")
-            location = c9.text_input("Location", value=boat["location"] or "")
+            e7, e8, e9 = st.columns(3)
+            length_ft = e7.number_input("Length (ft)", min_value=0.0, max_value=200.0, value=float(boat["length_ft"] or 0.0), step=0.5)
+            engine = e8.text_input("Engine", value=boat["engine"] or "")
+            location = e9.text_input("Location", value=boat["location"] or "")
 
-            c10, c11 = st.columns(2)
-            customer_name = c10.text_input("Customer name", value=boat["customer_name"] or "")
-            customer_phone = c11.text_input("Customer phone", value=boat["customer_phone"] or "")
+            e10, e11 = st.columns(2)
+            customer_name = e10.text_input("Customer name", value=boat["customer_name"] or "")
+            customer_phone = e11.text_input("Customer phone", value=boat["customer_phone"] or "")
 
             notes = st.text_area("Notes", value=boat["notes"] or "", height=120)
 
@@ -393,9 +556,11 @@ else:
                 st.success("Saved.")
                 st.rerun()
 
-        st.divider()
+        st.markdown("---")
         st.markdown("### Danger zone")
-        if st.button("Delete this boat (and its photos)", type="primary"):
+        if st.button("Delete this boat (and all photos)", type="primary"):
             delete_boat(selected_id)
             st.warning("Boat deleted.")
             st.rerun()
+
+        st.markdown("</div>", unsafe_allow_html=True)
