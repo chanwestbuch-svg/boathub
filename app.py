@@ -13,20 +13,12 @@ from PIL import Image
 # =========================
 # Page setup
 # =========================
-st.set_page_config(
-    page_title="BoatHub",
-    page_icon="🚤",
-    layout="wide",
-)
+st.set_page_config(page_title="BoatHub", page_icon="🚤", layout="wide")
 
 # =========================
 # Login Gate (optional)
 # =========================
 def require_password():
-    """
-    If BOATHUB_PASSWORD is set (Render), app requires login.
-    If not set (local), it won't block.
-    """
     real_pw = os.environ.get("BOATHUB_PASSWORD", "").strip()
     if not real_pw:
         return
@@ -83,15 +75,7 @@ LOGO_PATH = os.path.join(ASSETS_DIR, "paradigm_logo.png")
 # =========================
 # Constants
 # =========================
-STATUSES = [
-    "For Sale",
-    "Customer Service",
-    "On Hold",
-    "Sold",
-    "Delivered",
-    "Storage",
-    "Other",
-]
+STATUSES = ["For Sale", "Customer Service", "On Hold", "Sold", "Delivered", "Storage", "Other"]
 
 DEFAULT_CATEGORIES = [
     "Inventory - New",
@@ -104,15 +88,7 @@ DEFAULT_CATEGORIES = [
     "Uncategorized",
 ]
 
-DOC_CATEGORIES = [
-    "Warranty",
-    "Invoice",
-    "Service Order",
-    "Registration",
-    "Manual",
-    "Other",
-]
-
+DOC_CATEGORIES = ["Warranty", "Invoice", "Service Order", "Registration", "Manual", "Other"]
 ALLOWED_EXTS = {".pdf", ".doc", ".docx", ".jpg", ".jpeg", ".png", ".webp"}
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 
@@ -140,7 +116,7 @@ BADGE_STYLE = {
 }
 
 # =========================
-# CSS (Clean black/white premium)
+# CSS (clean black/white)
 # =========================
 st.markdown(
     """
@@ -148,34 +124,13 @@ st.markdown(
 .stApp { background: #F6F7FB; }
 .block-container { padding-top: 1.25rem; padding-bottom: 2.5rem; max-width: 1480px; }
 
-section[data-testid="stSidebar"] {
-  background: #FFFFFF;
-  border-right: 1px solid rgba(17,24,39,0.10);
-}
-
 #MainMenu { visibility: hidden; }
 footer { visibility: hidden; }
 header { visibility: hidden; height: 0; }
 
-.bh-title {
-  font-size: 30px;
-  font-weight: 950;
-  letter-spacing: -0.035em;
-  margin: 0;
-  color: #0B1220;
-}
-.bh-sub {
-  margin-top: 6px;
-  color: rgba(15,23,42,0.70);
-  font-size: 13px;
-}
-.bh-kicker {
-  font-size: 12px;
-  letter-spacing: 0.12em;
-  font-weight: 800;
-  color: rgba(15,23,42,0.55);
-  text-transform: uppercase;
-}
+.bh-title { font-size: 30px; font-weight: 950; letter-spacing: -0.035em; margin: 0; color: #0B1220; }
+.bh-sub { margin-top: 6px; color: rgba(15,23,42,0.70); font-size: 13px; }
+.bh-kicker { font-size: 12px; letter-spacing: 0.12em; font-weight: 800; color: rgba(15,23,42,0.55); text-transform: uppercase; }
 
 .bh-card {
   background: #FFFFFF;
@@ -190,39 +145,6 @@ header { visibility: hidden; height: 0; }
   border-radius: 22px;
   box-shadow: 0 18px 55px rgba(15,23,42,0.07);
   padding: 16px 16px;
-}
-
-.bh-stats {
-  display:grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px;
-}
-.bh-stat {
-  background: #FFFFFF;
-  border: 1px solid rgba(17,24,39,0.10);
-  border-radius: 18px;
-  box-shadow: 0 14px 40px rgba(15,23,42,0.06);
-  padding: 14px 14px;
-}
-.bh-stat-k {
-  color: rgba(15,23,42,0.60);
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.10em;
-  text-transform: uppercase;
-}
-.bh-stat-v {
-  margin-top: 6px;
-  font-size: 30px;
-  font-weight: 950;
-  letter-spacing: -0.02em;
-  color: #0B1220;
-}
-@media (max-width: 1100px){
-  .bh-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-@media (max-width: 768px){
-  .bh-stats { grid-template-columns: 1fr; }
 }
 
 .bh-badge {
@@ -262,7 +184,7 @@ div[data-baseweb="select"] > div {
 /* Mobile stacking */
 @media (max-width: 768px) {
   .block-container { padding-left: 0.95rem; padding-right: 0.95rem; }
-  input, textarea { font-size: 16px !important; } /* stops iPhone zoom */
+  input, textarea { font-size: 16px !important; } /* iPhone zoom fix */
   div[data-testid="stHorizontalBlock"] { flex-direction: column !important; }
   div[data-testid="column"] { width: 100% !important; }
 }
@@ -272,6 +194,26 @@ div[data-baseweb="select"] > div {
 """,
     unsafe_allow_html=True,
 )
+
+# =========================
+# Query param helpers (so dropdown acts like “pages”)
+# =========================
+def _get_query_param(key: str, default: str) -> str:
+    try:
+        v = st.query_params.get(key, default)
+        if isinstance(v, list):
+            return v[0] if v else default
+        return v or default
+    except Exception:
+        qp = st.experimental_get_query_params()
+        return (qp.get(key, [default]) or [default])[0]
+
+def _set_query_param(**kwargs):
+    try:
+        for k, v in kwargs.items():
+            st.query_params[k] = v
+    except Exception:
+        st.experimental_set_query_params(**kwargs)
 
 # =========================
 # DB helpers + migrations
@@ -339,7 +281,7 @@ def init_db():
         )
         """)
 
-        # ---- Migrations (adds features without wiping your data)
+        # Add feature columns (does NOT wipe data)
         ensure_column(conn, "boats", "category", "TEXT")
         ensure_column(conn, "boats", "tags", "TEXT")
         ensure_column(conn, "boats", "sale_price", "REAL")
@@ -349,7 +291,6 @@ def init_db():
         ensure_column(conn, "boats", "assigned_tech", "TEXT")
         ensure_column(conn, "boats", "priority", "TEXT")
 
-        # Fill blanks
         conn.execute("UPDATE boats SET category='Uncategorized' WHERE category IS NULL OR TRIM(category)=''")
         conn.execute("UPDATE boats SET priority='Normal' WHERE priority IS NULL OR TRIM(priority)=''")
 
@@ -359,7 +300,6 @@ def slugify(s):
     return s.strip("-") or "boat"
 
 def safe_filename(name):
-    # Prevent weird paths in zips
     base = os.path.basename(name or "file")
     base = base.replace("/", "_").replace("\\", "_")
     base = re.sub(r"[^a-zA-Z0-9._ -]+", "_", base)
@@ -386,12 +326,10 @@ def boat_exists(hin, stock):
     if not hin and not stock:
         return False
     with db() as conn:
-        if hin:
-            if conn.execute("SELECT 1 FROM boats WHERE hin=? LIMIT 1", (hin,)).fetchone():
-                return True
-        if stock:
-            if conn.execute("SELECT 1 FROM boats WHERE stock_number=? LIMIT 1", (stock,)).fetchone():
-                return True
+        if hin and conn.execute("SELECT 1 FROM boats WHERE hin=? LIMIT 1", (hin,)).fetchone():
+            return True
+        if stock and conn.execute("SELECT 1 FROM boats WHERE stock_number=? LIMIT 1", (stock,)).fetchone():
+            return True
     return False
 
 def insert_boat(data):
@@ -444,78 +382,66 @@ def get_boat(boat_id):
         return conn.execute("SELECT * FROM boats WHERE id=?", (boat_id,)).fetchone()
 
 # =========================
-# Filtering (supports “Quick Browse” presets)
+# “Pages” (your dropdown navigation)
 # =========================
-BROWSE_VIEWS = {
-    "All Boats": {"where": "", "params": []},
+PAGES = [
+    ("New Boats For Sale", "for_sale_new"),
+    ("Used Boats For Sale", "for_sale_used"),
+    ("All Boats For Sale", "for_sale_all"),
+    ("Service Boats", "service"),
+    ("On Hold", "on_hold"),
+    ("Sold", "sold"),
+    ("Delivered", "delivered"),
+    ("Storage", "storage"),
+    ("All Boats", "all"),
+    ("Add New Boat", "add"),
+    ("Tools / Export / Backup", "tools"),
+]
+LABELS = [p[0] for p in PAGES]
+LABEL_TO_KEY = {label: key for label, key in PAGES}
+KEY_TO_LABEL = {key: label for label, key in PAGES}
+ALLOWED_KEYS = set(KEY_TO_LABEL.keys())
 
-    # What you asked for:
-    "New Boats For Sale": {
-        "where": "(category = ? AND status = ?)",
-        "params": ["Inventory - New", "For Sale"],
+VIEW_CONFIG = {
+    "for_sale_new": {
+        "title": "New Boats For Sale",
+        "where": "status = ? AND category = ?",
+        "params": ["For Sale", "Inventory - New"],
     },
-    "Used Boats For Sale": {
-        "where": "(category = ? AND status = ?)",
-        "params": ["Inventory - Used", "For Sale"],
+    "for_sale_used": {
+        "title": "Used Boats For Sale",
+        "where": "status = ? AND category = ?",
+        "params": ["For Sale", "Inventory - Used"],
     },
-    "Service Boats": {
-        # More forgiving: show boats marked as Customer Service OR categorized as Service
+    "for_sale_all": {
+        "title": "All Boats For Sale",
+        "where": "status = ?",
+        "params": ["For Sale"],
+    },
+    "service": {
+        "title": "Service Boats",
         "where": "(status = ? OR category = ?)",
         "params": ["Customer Service", "Service"],
     },
-
-    # Extra useful views:
-    "Consignment For Sale": {
-        "where": "(category = ? AND status = ?)",
-        "params": ["Consignment", "For Sale"],
-    },
-    "Demo For Sale": {
-        "where": "(category = ? AND status = ?)",
-        "params": ["Demo", "For Sale"],
-    },
-    "On Hold": {"where": "(status = ?)", "params": ["On Hold"]},
-    "Sold": {"where": "(status = ?)", "params": ["Sold"]},
-    "Delivered": {"where": "(status = ?)", "params": ["Delivered"]},
-    "Storage": {"where": "(status = ?)", "params": ["Storage"]},
-    "Uncategorized": {"where": "(category = ?)", "params": ["Uncategorized"]},
+    "on_hold": {"title": "On Hold", "where": "status = ?", "params": ["On Hold"]},
+    "sold": {"title": "Sold", "where": "status = ?", "params": ["Sold"]},
+    "delivered": {"title": "Delivered", "where": "status = ?", "params": ["Delivered"]},
+    "storage": {"title": "Storage", "where": "status = ?", "params": ["Storage"]},
+    "all": {"title": "All Boats", "where": "", "params": []},
 }
 
-def list_boats_filtered(
-    query,
-    view_name,
-    category_one,
-    statuses,
-    makes,
-    year_min,
-    year_max,
-    only_with_photos,
-    only_with_docs,
-    sort_mode,
-):
-    # If user clears statuses/makes in advanced filters, show nothing
-    if statuses is not None and len(statuses) == 0:
-        return []
-    if makes is not None and len(makes) == 0:
-        return []
-
-    q = f"%{(query or '').strip()}%"
-
+def list_boats_for_view(view_key, search_text, sort_mode, only_with_photos, only_with_docs):
+    cfg = VIEW_CONFIG.get(view_key, VIEW_CONFIG["all"])
     conditions = []
     params = []
 
-    # View preset base condition
-    preset = BROWSE_VIEWS.get(view_name, BROWSE_VIEWS["All Boats"])
-    if preset["where"]:
-        conditions.append(preset["where"])
-        params.extend(preset["params"])
+    if cfg["where"]:
+        conditions.append(f"({cfg['where']})")
+        params.extend(cfg["params"])
 
-    # Optional single category dropdown override (simple)
-    if category_one and category_one != "All Categories":
-        conditions.append("(category = ?)")
-        params.append(category_one)
-
-    # Search
-    if (query or "").strip():
+    s = (search_text or "").strip()
+    if s:
+        q = f"%{s}%"
         conditions.append("""
         (
           make LIKE ? OR model LIKE ? OR hin LIKE ? OR stock_number LIKE ? OR customer_name LIKE ?
@@ -524,26 +450,8 @@ def list_boats_filtered(
         """)
         params.extend([q, q, q, q, q, q, q])
 
-    # Advanced status filter (AND)
-    if statuses is not None:
-        placeholders = ",".join(["?"] * len(statuses))
-        conditions.append(f"(status IN ({placeholders}))")
-        params.extend(statuses)
-
-    # Advanced make filter (AND)
-    if makes is not None:
-        placeholders = ",".join(["?"] * len(makes))
-        conditions.append(f"(make IN ({placeholders}))")
-        params.extend(makes)
-
-    # Year range
-    if year_min is not None and year_max is not None:
-        conditions.append("(year IS NOT NULL AND year BETWEEN ? AND ?)")
-        params.extend([int(year_min), int(year_max)])
-
     if only_with_photos:
         conditions.append("EXISTS (SELECT 1 FROM boat_photos bp WHERE bp.boat_id = boats.id)")
-
     if only_with_docs:
         conditions.append("EXISTS (SELECT 1 FROM boat_files bf WHERE bf.boat_id = boats.id)")
 
@@ -594,12 +502,10 @@ def delete_photo(photo_id):
 def save_uploaded_images(boat_id, make, model, files):
     count = 0
     base = slugify(f"{boat_id}-{make}-{model}")
-
     for f in files:
         ext = os.path.splitext(f.name)[1].lower()
         if ext not in IMAGE_EXTS:
             continue
-
         out_name = f"{base}-{datetime.now().strftime('%Y%m%d-%H%M%S')}-{count}{ext}"
         out_path = os.path.join(PHOTOS_DIR, out_name)
 
@@ -609,11 +515,10 @@ def save_uploaded_images(boat_id, make, model, files):
         scale = min(1.0, max_side / float(max(w, h)))
         if scale < 1.0:
             img = img.resize((int(w * scale), int(h * scale)))
-
         img.save(out_path, quality=88)
+
         add_photo(boat_id, out_name)
         count += 1
-
     return count
 
 # =========================
@@ -674,15 +579,14 @@ def save_uploaded_docs(boat_id, make, model, category, files):
 
 def delete_boat(boat_id):
     photos = get_photos(boat_id)
-
     with db() as conn:
         conn.execute("DELETE FROM boats WHERE id=?", (boat_id,))
 
     for p in photos:
-        path = os.path.join(PHOTOS_DIR, p["filename"])
-        if os.path.exists(path):
+        pth = os.path.join(PHOTOS_DIR, p["filename"])
+        if os.path.exists(pth):
             try:
-                os.remove(path)
+                os.remove(pth)
             except OSError:
                 pass
 
@@ -702,7 +606,7 @@ def delete_boat(boat_id):
             pass
 
 # =========================
-# Exports / Backups
+# Tools
 # =========================
 def boats_to_csv_bytes(rows):
     out = io.StringIO()
@@ -776,7 +680,7 @@ with h2:
         <div class="bh-card">
           <div class="bh-kicker">Paradigm • Dealer Ops</div>
           <div class="bh-title">BoatHub</div>
-          <div class="bh-sub">Quick Browse by Category (New/Used/Service) • Photos + Documents • Export + Backup</div>
+          <div class="bh-sub">Use the dropdown menu to jump to a category “page” (For Sale / Service / etc.).</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -785,131 +689,52 @@ with h2:
 st.write("")
 
 # =========================
-# Sidebar (THIS is the main thing you wanted)
+# Top navigation row (THIS is your “page dropdown”)
 # =========================
-all_categories = sorted(set(DEFAULT_CATEGORIES + distinct_values("category")))
-all_makes = distinct_values("make")
+current_key = _get_query_param("page", "for_sale_all")
+if current_key not in ALLOWED_KEYS:
+    current_key = "for_sale_all"
 
-# Reset button
-with st.sidebar:
-    st.markdown("### Quick Browse")
+default_label = KEY_TO_LABEL.get(current_key, "All Boats")
 
-    view_name = st.selectbox(
-        "Show me…",
-        list(BROWSE_VIEWS.keys()),
-        index=0,
-        key="view_name",
-        help="This is the main dropdown for New For Sale / Used For Sale / Service boats, etc.",
-    )
+nav_col, search_col, sort_col = st.columns([1.35, 1.25, 1.05], vertical_alignment="bottom")
 
-    # Optional category dropdown (simple)
-    category_one = st.selectbox(
-        "Category (optional)",
-        ["All Categories"] + all_categories,
-        index=0,
-        key="category_one",
-        help="If you pick a category here, it will narrow results even more.",
-    )
-
-    search = st.text_input("Search", value="", placeholder="make, model, HIN, stock, customer, tags…", key="search")
-
-    show_advanced = st.checkbox("Show advanced filters", value=False, key="show_advanced")
-
-    # Advanced filters (optional)
-    statuses = None
-    makes = None
-    year_min = None
-    year_max = None
-    only_photos = False
-    only_docs = False
-    sort_mode = "Recently Updated"
-
-    if show_advanced:
-        st.markdown("---")
-        st.markdown("#### Advanced")
-
-        statuses = st.multiselect("Status", STATUSES, default=STATUSES, key="status_adv")
-        makes = st.multiselect("Make", all_makes, default=all_makes, key="make_adv")
-
-        years = [y for y in distinct_values("year") if isinstance(y, int)]
-        if years:
-            y_min, y_max = int(min(years)), int(max(years))
-            yr = st.slider("Year range", min_value=y_min, max_value=y_max, value=(y_min, y_max), key="year_range")
-            year_min, year_max = yr[0], yr[1]
-
-        only_photos = st.checkbox("Only WITH photos", value=False, key="only_photos")
-        only_docs = st.checkbox("Only WITH documents", value=False, key="only_docs")
-
-        sort_mode = st.selectbox(
-            "Sort",
-            ["Recently Updated", "Year (Newest)", "Year (Oldest)", "Make (A-Z)", "Status", "Category"],
-            index=0,
-            key="sort_mode",
-        )
-
-    st.markdown("---")
-    if st.button("Reset browse filters", use_container_width=True):
-        for k in [
-            "view_name", "category_one", "search", "show_advanced",
-            "status_adv", "make_adv", "year_range", "only_photos", "only_docs", "sort_mode",
-        ]:
-            if k in st.session_state:
-                del st.session_state[k]
+with nav_col:
+    selected_label = st.selectbox("Go to category page", LABELS, index=LABELS.index(default_label))
+    selected_key = LABEL_TO_KEY[selected_label]
+    if selected_key != current_key:
+        _set_query_param(page=selected_key)
         st.rerun()
 
-    st.caption("Tip: Use the dropdown at the top to instantly show New/Used/Service boats.")
+with search_col:
+    if selected_key in VIEW_CONFIG:
+        search_text = st.text_input("Search inside this page", value=_get_query_param("q", ""), placeholder="make, model, HIN, stock, customer…")
+    else:
+        search_text = ""
+with sort_col:
+    if selected_key in VIEW_CONFIG:
+        sort_mode = st.selectbox("Sort", ["Recently Updated", "Year (Newest)", "Year (Oldest)", "Make (A-Z)", "Status", "Category"], index=0)
+    else:
+        sort_mode = "Recently Updated"
 
-# =========================
-# Stats (based on ALL boats)
-# =========================
-with db() as conn:
-    all_rows = conn.execute("SELECT status FROM boats").fetchall()
+# Optional quick toggles (kept simple)
+only_photos = False
+only_docs = False
+if selected_key in VIEW_CONFIG:
+    cA, cB = st.columns([1, 1])
+    with cA:
+        only_photos = st.checkbox("Only with photos", value=False)
+    with cB:
+        only_docs = st.checkbox("Only with documents", value=False)
 
-total = len(all_rows)
-for_sale = sum(1 for r in all_rows if r["status"] == "For Sale")
-service = sum(1 for r in all_rows if r["status"] == "Customer Service")
-sold = sum(1 for r in all_rows if r["status"] == "Sold")
-
-st.markdown(
-    f"""
-    <div class="bh-stats">
-      <div class="bh-stat"><div class="bh-stat-k">Total</div><div class="bh-stat-v">{total}</div></div>
-      <div class="bh-stat"><div class="bh-stat-k">For Sale</div><div class="bh-stat-v">{for_sale}</div></div>
-      <div class="bh-stat"><div class="bh-stat-k">Service</div><div class="bh-stat-v">{service}</div></div>
-      <div class="bh-stat"><div class="bh-stat-k">Sold</div><div class="bh-stat-v">{sold}</div></div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
 st.write("")
 
 # =========================
-# Main Tabs
+# ROUTING (page switch)
 # =========================
-tab_browse, tab_add, tab_tools = st.tabs(["Browse Boats", "Add New Boat", "Tools / Export / Backup"])
-
-# =========================
-# Filtered results (this is what updates when you change dropdown)
-# =========================
-filtered = list_boats_filtered(
-    query=search,
-    view_name=view_name,
-    category_one=category_one,
-    statuses=statuses,
-    makes=makes,
-    year_min=year_min,
-    year_max=year_max,
-    only_with_photos=only_photos,
-    only_with_docs=only_docs,
-    sort_mode=sort_mode,
-)
-
-# =========================
-# ADD NEW BOAT
-# =========================
-with tab_add:
+if selected_key == "add":
     st.markdown('<div class="bh-card-tight">', unsafe_allow_html=True)
-    st.markdown("## Add a boat")
+    st.markdown("## Add New Boat")
 
     categories_for_form = sorted(set(DEFAULT_CATEGORIES + distinct_values("category")))
 
@@ -933,7 +758,7 @@ with tab_add:
         hin = c5.text_input("HIN / Serial (optional)")
         location = c6.text_input("Location (optional)", value="Showroom")
 
-        tags = st.text_input("Tags (optional)", help="Example: blue, tri-toon, yamaha, warranty")
+        tags = st.text_input("Tags (optional)")
 
         st.markdown("### Sales / Service (optional)")
         with st.expander("Open extra fields", expanded=False):
@@ -960,18 +785,12 @@ with tab_add:
 
         notes = st.text_area("Notes", height=120)
 
-        uploaded = st.file_uploader(
-            "Upload photos (multi-select)",
-            type=["jpg", "jpeg", "png", "webp"],
-            accept_multiple_files=True,
-        )
+        uploaded = st.file_uploader("Upload photos (multi-select)", type=["jpg", "jpeg", "png", "webp"], accept_multiple_files=True)
 
         submitted = st.form_submit_button("Create Boat", use_container_width=True)
 
     if submitted:
-        final_category = (category_custom.strip() if category_pick == "Custom (type below)" else category_pick).strip()
-        if not final_category:
-            final_category = "Uncategorized"
+        final_category = (category_custom.strip() if category_pick == "Custom (type below)" else category_pick).strip() or "Uncategorized"
 
         if not make.strip() or not model.strip():
             st.error("Make and Model are required.")
@@ -1008,30 +827,70 @@ with tab_add:
             else:
                 st.success(f"Created Boat #{boat_id}.")
 
-            st.info("Now click the 'Browse Boats' tab and your new boat will show up in the right category.")
+            st.info("Use the dropdown at the top to go back to For Sale / Service pages.")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
-# =========================
-# BROWSE BOATS
-# =========================
-with tab_browse:
+elif selected_key == "tools":
+    st.markdown('<div class="bh-card-tight">', unsafe_allow_html=True)
+    st.markdown("## Tools / Export / Backup")
+
+    st.markdown("### Backup database (boats.db)")
+    if os.path.exists(DB_PATH):
+        with open(DB_PATH, "rb") as fp:
+            st.download_button(
+                "Download boats.db backup",
+                data=fp.read(),
+                file_name=f"boats_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db",
+                mime="application/octet-stream",
+                use_container_width=True,
+            )
+
+    st.markdown("---")
+    st.markdown("### Download ONE boat packet (ZIP)")
+    st.caption("Includes that boat’s photos + documents + a summary text file.")
+    boat_id_for_zip = st.number_input("Boat ID", min_value=1, value=1, step=1)
+    if st.button("Generate ZIP", use_container_width=True):
+        z = zip_one_boat(int(boat_id_for_zip))
+        if not z:
+            st.error("Boat not found.")
+        else:
+            st.download_button(
+                "Download ZIP now",
+                data=z,
+                file_name=f"boat_{boat_id_for_zip}_packet_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
+                mime="application/zip",
+                use_container_width=True,
+            )
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+else:
+    # =========================
+    # BROWSE “PAGE”
+    # =========================
+    cfg = VIEW_CONFIG.get(selected_key, VIEW_CONFIG["all"])
+    boats = list_boats_for_view(selected_key, search_text, sort_mode, only_photos, only_docs)
+
+    st.markdown('<div class="bh-card">', unsafe_allow_html=True)
+    st.markdown(f"## {cfg['title']}")
+    st.caption(f"{len(boats)} boat(s) on this page.")
+    st.markdown("</div>", unsafe_allow_html=True)
+    st.write("")
+
+    if not boats:
+        st.info("No boats match this page (try switching pages in the dropdown).")
+        st.stop()
+
     left, right = st.columns([1.15, 2.05], gap="large")
 
     with left:
         st.markdown('<div class="bh-card-tight">', unsafe_allow_html=True)
-        st.markdown("## Browse Results")
+        st.markdown("### Boats in this category")
 
-        st.caption(f"View: **{view_name}**  •  Results: **{len(filtered)}**")
-
-        if not filtered:
-            st.warning("No boats match your view/filters.")
-            st.markdown("</div>", unsafe_allow_html=True)
-            st.stop()
-
-        # Show a list/table so “all boats pop up”
+        # Table so you can SEE all boats in this page
         table_rows = []
-        for b in filtered[:250]:  # keep it fast
+        for b in boats[:400]:  # keep fast
             table_rows.append({
                 "ID": b["id"],
                 "Year": b["year"],
@@ -1043,15 +902,26 @@ with tab_browse:
             })
         st.dataframe(table_rows, use_container_width=True, hide_index=True, height=360)
 
+        # Quick open dropdown
         labels = []
         id_by_label = {}
-        for b in filtered:
+        for b in boats:
             label = f"#{b['id']} • {b['year'] or ''} {b['make']} {b['model']} • {b['status']} • {b['category']}"
             labels.append(label)
             id_by_label[label] = b["id"]
 
         selected_label = st.selectbox("Open a boat", labels, index=0)
         selected_id = id_by_label[selected_label]
+
+        # Export THIS page to CSV (super useful)
+        st.markdown("---")
+        st.download_button(
+            "Download THIS category as CSV",
+            data=boats_to_csv_bytes(boats),
+            file_name=f"boathub_{selected_key}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
 
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -1124,12 +994,7 @@ with tab_browse:
 
             st.markdown("---")
             st.markdown("### Upload more photos")
-            more = st.file_uploader(
-                "Select photos",
-                type=["jpg", "jpeg", "png", "webp"],
-                accept_multiple_files=True,
-                key="more_photos",
-            )
+            more = st.file_uploader("Select photos", type=["jpg", "jpeg", "png", "webp"], accept_multiple_files=True, key="more_photos")
             if more and st.button("Save uploaded photos", use_container_width=True):
                 n = save_uploaded_images(selected_id, boat["make"], boat["model"], more)
                 st.success(f"Uploaded {n} photo(s).")
@@ -1138,12 +1003,7 @@ with tab_browse:
         with tab_docs:
             st.markdown("### Documents (Warranty / Invoice / Service Order / etc.)")
 
-            ccat1, ccat2 = st.columns([2, 3])
-            with ccat1:
-                view_cat = st.selectbox("View document type", ["All"] + DOC_CATEGORIES, index=0)
-            with ccat2:
-                st.caption("Allowed: PDF, DOC, DOCX, JPG/PNG/WEBP")
-
+            view_cat = st.selectbox("View document type", ["All"] + DOC_CATEGORIES, index=0)
             shown = docs if view_cat == "All" else [d for d in docs if d["category"] == view_cat]
 
             if shown:
@@ -1199,14 +1059,18 @@ with tab_browse:
 
         with tab_edit:
             st.markdown("### Edit boat details")
+
             categories_for_form = sorted(set(DEFAULT_CATEGORIES + distinct_values("category")))
 
             with st.form("edit_form"):
-                cat_pick = st.selectbox("Category", categories_for_form + ["Custom (type below)"],
-                                        index=max(0, categories_for_form.index(boat["category"]) if boat["category"] in categories_for_form else 0))
-                cat_custom = ""
-                if cat_pick == "Custom (type below)":
-                    cat_custom = st.text_input("Custom category name", value=boat["category"] if boat["category"] not in categories_for_form else "")
+                category_pick = st.selectbox(
+                    "Category",
+                    categories_for_form + ["Custom (type below)"],
+                    index=max(0, categories_for_form.index(boat["category"]) if boat["category"] in categories_for_form else 0),
+                )
+                category_custom = ""
+                if category_pick == "Custom (type below)":
+                    category_custom = st.text_input("Custom category name", value=boat["category"] if boat["category"] not in categories_for_form else "")
 
                 status_in = st.selectbox("Status", STATUSES, index=STATUSES.index(boat["status"]))
 
@@ -1215,8 +1079,7 @@ with tab_browse:
                 model = e2.text_input("Model *", value=boat["model"] or "")
 
                 e3, e4 = st.columns(2)
-                year = e3.number_input("Year", min_value=1900, max_value=2100,
-                                       value=int(boat["year"] or datetime.now().year), step=1)
+                year = e3.number_input("Year", min_value=1900, max_value=2100, value=int(boat["year"] or datetime.now().year), step=1)
                 stock_number = e4.text_input("Stock #", value=boat["stock_number"] or "")
 
                 e5, e6 = st.columns(2)
@@ -1224,31 +1087,6 @@ with tab_browse:
                 location = e6.text_input("Location", value=boat["location"] or "")
 
                 tags = st.text_input("Tags", value=boat["tags"] or "")
-
-                st.markdown("### Sales / Service (optional)")
-                with st.expander("Open extra fields", expanded=False):
-                    x1, x2 = st.columns(2)
-                    sale_price = x1.number_input("Sale Price", min_value=0.0, value=float(boat["sale_price"] or 0.0), step=500.0)
-                    msrp = x2.number_input("MSRP", min_value=0.0, value=float(boat["msrp"] or 0.0), step=500.0)
-
-                    x3, x4 = st.columns(2)
-                    hours = x3.number_input("Hours", min_value=0.0, value=float(boat["hours"] or 0.0), step=1.0)
-                    priority = x4.selectbox("Priority", PRIORITIES, index=PRIORITIES.index(boat["priority"] or "Normal"))
-
-                    x5, x6 = st.columns(2)
-                    work_order = x5.text_input("Work Order #", value=boat["work_order"] or "")
-                    assigned_tech = x6.text_input("Assigned Tech", value=boat["assigned_tech"] or "")
-
-                    x7, x8 = st.columns(2)
-                    length_ft = x7.number_input("Length (ft)", min_value=0.0, max_value=200.0,
-                                                value=float(boat["length_ft"] or 0.0), step=0.5)
-                    engine = x8.text_input("Engine", value=boat["engine"] or "")
-
-                st.markdown("### Customer")
-                c9, c10 = st.columns(2)
-                customer_name = c9.text_input("Customer name", value=boat["customer_name"] or "")
-                customer_phone = c10.text_input("Customer phone", value=boat["customer_phone"] or "")
-
                 notes = st.text_area("Notes", value=boat["notes"] or "", height=120)
 
                 save = st.form_submit_button("Save changes", use_container_width=True)
@@ -1257,9 +1095,7 @@ with tab_browse:
                 if not make.strip() or not model.strip():
                     st.error("Make and Model are required.")
                 else:
-                    final_cat = (cat_custom.strip() if cat_pick == "Custom (type below)" else cat_pick).strip()
-                    if not final_cat:
-                        final_cat = "Uncategorized"
+                    final_category = (category_custom.strip() if category_pick == "Custom (type below)" else category_pick).strip() or "Uncategorized"
 
                     update_boat(selected_id, {
                         "stock_number": stock_number.strip() or None,
@@ -1267,20 +1103,20 @@ with tab_browse:
                         "make": make.strip(),
                         "model": model.strip(),
                         "hin": hin.strip() or None,
-                        "length_ft": float(length_ft) if length_ft else None,
-                        "engine": engine.strip() or None,
+                        "length_ft": boat["length_ft"],
+                        "engine": boat["engine"],
                         "location": location.strip() or None,
                         "status": status_in,
-                        "category": final_cat,
+                        "category": final_category,
                         "tags": tags.strip() or None,
-                        "sale_price": float(sale_price) if sale_price else None,
-                        "msrp": float(msrp) if msrp else None,
-                        "hours": float(hours) if hours else None,
-                        "work_order": work_order.strip() or None,
-                        "assigned_tech": assigned_tech.strip() or None,
-                        "priority": priority or "Normal",
-                        "customer_name": customer_name.strip() or None,
-                        "customer_phone": customer_phone.strip() or None,
+                        "sale_price": boat["sale_price"],
+                        "msrp": boat["msrp"],
+                        "hours": boat["hours"],
+                        "work_order": boat["work_order"],
+                        "assigned_tech": boat["assigned_tech"],
+                        "priority": boat["priority"] or "Normal",
+                        "customer_name": boat["customer_name"],
+                        "customer_phone": boat["customer_phone"],
                         "notes": notes.strip() or None,
                     })
                     st.success("Saved.")
@@ -1298,53 +1134,3 @@ with tab_browse:
                     st.rerun()
 
         st.markdown("</div>", unsafe_allow_html=True)
-
-# =========================
-# TOOLS TAB
-# =========================
-with tab_tools:
-    st.markdown('<div class="bh-card-tight">', unsafe_allow_html=True)
-    st.markdown("## Tools / Export / Backup")
-
-    st.markdown("### Export current results (CSV)")
-    st.download_button(
-        "Download CSV of what you're viewing right now",
-        data=boats_to_csv_bytes(filtered),
-        file_name=f"boathub_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-        mime="text/csv",
-        use_container_width=True,
-    )
-
-    st.markdown("---")
-    st.markdown("### Backup database (boats.db)")
-    if os.path.exists(DB_PATH):
-        with open(DB_PATH, "rb") as fp:
-            st.download_button(
-                "Download boats.db backup",
-                data=fp.read(),
-                file_name=f"boats_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db",
-                mime="application/octet-stream",
-                use_container_width=True,
-            )
-    else:
-        st.warning("Database file not found.")
-
-    st.markdown("---")
-    st.markdown("### Download ONE boat packet (ZIP)")
-    st.caption("Includes that boat’s photos + documents + a summary text file.")
-    default_id = int(filtered[0]["id"]) if filtered else 1
-    boat_id_for_zip = st.number_input("Boat ID", min_value=1, value=default_id, step=1)
-    if st.button("Generate ZIP", use_container_width=True):
-        z = zip_one_boat(int(boat_id_for_zip))
-        if not z:
-            st.error("Boat not found.")
-        else:
-            st.download_button(
-                "Download ZIP now",
-                data=z,
-                file_name=f"boat_{boat_id_for_zip}_packet_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
-                mime="application/zip",
-                use_container_width=True,
-            )
-
-    st.markdown("</div>", unsafe_allow_html=True)
